@@ -1,7 +1,7 @@
 {
   "name": "@malinamnam/pi-phone",
   "version": "0.0.9",
-  "description": "Phone-first remote UI extension for Pi with Tailscale-friendly access",
+  "description": "Phone-first remote UI extension for Pi with Cloudflare tunnel access",
   "type": "module",
   "homepage": "https://github.com/MaliNamNam/pi-phone#readme",
   "repository": {
@@ -17,7 +17,7 @@
     "extension",
     "phone",
     "mobile",
-    "tailscale"
+    "cloudflare"
   ],
   "publishConfig": {
     "access": "public"

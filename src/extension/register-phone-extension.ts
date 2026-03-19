@@ -16,14 +16,14 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("phone-stop", {
-    description: "Stop the phone web UI server and remove the matching Tailscale Serve route",
+    description: "Stop the phone web UI server and Cloudflare tunnel",
     handler: async (_args, ctx) => {
       await runtime.handlePhoneStop(ctx);
     },
   });
 
   pi.registerCommand("phone-status", {
-    description: "Show phone server and Tailscale Serve status",
+    description: "Show phone server and tunnel status",
     handler: async (_args, ctx) => {
       await runtime.handlePhoneStatus(ctx);
     },

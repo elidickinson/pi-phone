@@ -28,7 +28,7 @@ import {
   listSessionsForCwd,
 } from "./phone-sessions";
 import { mimeTypes, publicFilePath, sanitizePublicPath } from "./phone-static";
-import { disableMatchingTailscaleServe, enableTailscaleServe, getTailscaleServeInfo } from "./phone-tailscale";
+import { disableCloudflareTunnel, enableCloudflareTunnel, getCloudflareTunnelInfo } from "./phone-cloudflare";
 import { buildThemePayload } from "./phone-theme";
 import type { PhoneConfig } from "./types";
 
@@ -180,7 +180,7 @@ export class PhoneServerRuntime {
       }
 
       await this.stopServer();
-      await disableMatchingTailscaleServe(this.pi, this.config.port);
+      await disableCloudflareTunnel();
     }, this.config.idleTimeoutMs);
   }
 
@@ -854,21 +854,13 @@ export class PhoneServerRuntime {
     }
 
     await this.sessionPool?.ensureDefaultWorker();
-    const tailscale = await enableTailscaleServe(this.pi, this.config.port);
+    const tunnel = await enableCloudflareTunnel(this.config.port);
     this.updateStatusUi(ctx);
     ctx.ui.notify(this.statusText(), "info");
-    if (tailscale.enabled) {
-      if (tailscale.changed) {
-        ctx.ui.notify(`Tailscale Serve ready${tailscale.url ? `: ${tailscale.url}` : " for this device."}`, "info");
-        if (tailscale.replacedExisting) {
-          ctx.ui.notify("Updated the current Tailscale Serve web route to point to Pi Phone.", "warning");
-        }
-      } else {
-        ctx.ui.notify(`Tailscale Serve already points to Pi Phone${tailscale.url ? `: ${tailscale.url}` : "."}`, "info");
-      }
-    } else if (tailscale.error) {
-      ctx.ui.notify(`Could not configure Tailscale Serve automatically: ${tailscale.error}`, "warning");
-      ctx.ui.notify(`Manual fallback: tailscale serve --bg --https=443 http://127.0.0.1:${this.config.port}`, "info");
+    if (tunnel.url) {
+      ctx.ui.notify(`Cloudflare Tunnel: ${tunnel.url}`, "info");
+    } else if (tunnel.error) {
+      ctx.ui.notify(`Could not start cloudflared: ${tunnel.error}`, "warning");
     }
     if (generatedToken) {
       ctx.ui.notify(`Generated token: ${this.config.token}`, "warning");
@@ -882,18 +874,11 @@ export class PhoneServerRuntime {
     const hadLocalServer = Boolean(this.server);
     await this.stopServer();
     const externalStop = hadLocalServer ? null : await stopPersistedRuntime(this.config.host, this.config.port);
-    const tailscale = await disableMatchingTailscaleServe(this.pi, this.config.port);
+    await disableCloudflareTunnel();
     this.updateStatusUi(ctx);
 
     if (hadLocalServer || externalStop?.stopped) {
-      if (tailscale.disabled) {
-        ctx.ui.notify("Pi Phone stopped and matching Tailscale Serve route disabled", "info");
-      } else {
-        ctx.ui.notify("Pi Phone stopped", "info");
-        if (tailscale.error) {
-          ctx.ui.notify(`Could not disable Tailscale Serve automatically: ${tailscale.error}`, "warning");
-        }
-      }
+      ctx.ui.notify("Pi Phone stopped.", "info");
       return;
     }
 
@@ -903,12 +888,6 @@ export class PhoneServerRuntime {
     } else {
       ctx.ui.notify("Pi Phone is already stopped.", "info");
     }
-
-    if (tailscale.disabled) {
-      ctx.ui.notify("Disabled the matching Tailscale Serve route.", "info");
-    } else if (tailscale.error) {
-      ctx.ui.notify(`Could not disable Tailscale Serve automatically: ${tailscale.error}`, "warning");
-    }
   }
 
   async handlePhoneStatus(ctx: ExtensionCommandContext) {
@@ -916,19 +895,11 @@ export class PhoneServerRuntime {
     this.updateStatusUi(ctx);
     ctx.ui.notify(this.statusText(), this.server ? "info" : "warning");
 
-    const tailscale = await getTailscaleServeInfo(this.pi, this.config.port);
-    if (tailscale.active) {
-      if (this.server) {
-        ctx.ui.notify(`Tailscale Serve: ${tailscale.url || "enabled for Pi Phone"}`, "info");
-      } else {
-        ctx.ui.notify(`Tailscale Serve is still pointing at Pi Phone${tailscale.url ? `: ${tailscale.url}` : "."}`, "warning");
-      }
+    const tunnel = getCloudflareTunnelInfo();
+    if (tunnel.active) {
+      ctx.ui.notify(`Cloudflare Tunnel: ${tunnel.url}`, "info");
     } else if (this.server) {
-      if (tailscale.error) {
-        ctx.ui.notify(`Tailscale Serve check failed: ${tailscale.error}`, "warning");
-      } else {
-        ctx.ui.notify("Tailscale Serve is not currently pointing to Pi Phone.", "warning");
-      }
+      ctx.ui.notify("Cloudflare Tunnel is not running.", "warning");
     }
   }
 
@@ -962,7 +933,7 @@ export class PhoneServerRuntime {
   async handleSessionShutdown(ctx: ExtensionContext) {
     this.captureCtx(ctx);
     await this.stopServer();
-    await disableMatchingTailscaleServe(this.pi, this.config.port);
+    await disableCloudflareTunnel();
     this.updateStatusUi(ctx);
   }
 }
