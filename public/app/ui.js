@@ -1,5 +1,5 @@
 import { THEME_CSS_VARIABLES, TOKEN_STORAGE_KEY } from "./constants.js";
-import { formatCwdDisplay, formatTokenCount } from "./formatters.js";
+import { formatCwdDisplay, formatTokenCount, stripTerminalControlSequences } from "./formatters.js";
 import { el, state } from "./state.js";
 
 let composerLayoutFrame = 0;
@@ -102,21 +102,24 @@ export function scrollMessagesToBottom() {
 }
 
 export function showBanner(text, kind = "info") {
-  if (!text) {
+  const cleanText = stripTerminalControlSequences(text || "").trim();
+  if (!cleanText) {
     el.banner.classList.add("hidden");
     el.banner.textContent = "";
     el.banner.classList.remove("error");
     return;
   }
-  el.banner.textContent = text;
+  el.banner.textContent = cleanText;
   el.banner.classList.toggle("error", kind === "error");
   el.banner.classList.remove("hidden");
 }
 
 export function showToast(text, kind = "info") {
+  const cleanText = stripTerminalControlSequences(text || "").trim();
+  if (!cleanText) return;
   const toast = document.createElement("div");
   toast.className = `toast ${kind === "error" ? "error" : ""}`;
-  toast.textContent = text;
+  toast.textContent = cleanText;
   el.toastHost.appendChild(toast);
   setTimeout(() => toast.remove(), 3500);
 }
@@ -219,7 +222,8 @@ export function renderHeader() {
   el.sessionValue.textContent = snapshot.sessionName || snapshot.sessionId || activeSession?.label || "Current session";
   el.modelValue.textContent = snapshot.model?.name || snapshot.model?.id || activeSession?.model?.name || "Default";
   el.thinkingValue.textContent = snapshot.thinkingLevel || "—";
-  el.streamingValue.textContent = status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle";
+  const owner = status.controlOwner || "cli";
+  el.streamingValue.textContent = `${status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle"} · ${owner}`;
   el.serverValue.textContent = status.port ? `${status.host || "127.0.0.1"}:${status.port}` : "—";
   updateComposerState();
   renderQuota();

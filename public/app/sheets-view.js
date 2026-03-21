@@ -148,35 +148,52 @@ function sortedActiveSessions() {
 
 function renderActiveSessionsSheet() {
   const sessions = sortedActiveSessions();
+  const parentSessions = sessions.filter((session) => session.kind === "parent");
+  const parallelSessions = sessions.filter((session) => session.kind === "parallel");
+
+  const renderSessionButton = (session, sectionKind) => {
+    const statusBits = [
+      session.id === state.activeSessionId ? "current" : "",
+      sectionKind === "parent" ? "mirroring cli" : "parallel",
+      session.isStreaming ? "live" : "",
+      session.hasPendingUiRequest ? "needs input" : "",
+      session.model?.name || "",
+      Number.isFinite(session.messageCount) ? `${session.messageCount} messages` : "",
+      session.secondaryLabel || "",
+    ].filter(Boolean).join(" · ");
+
+    const preview = session.lastUserPreview || session.firstUserPreview || "";
+
+    return `
+      <button class="secondary" data-active-session-id="${escapeHtml(session.id)}">
+        <div><strong>${escapeHtml(session.label || "Session")}</strong></div>
+        ${statusBits ? `<div class="label">${escapeHtml(statusBits)}</div>` : ""}
+        ${preview ? `<div class="label">${escapeHtml(preview)}</div>` : ""}
+      </button>
+    `;
+  };
 
   return `
     <section class="sheet-section">
-      <h3>Active sessions</h3>
+      <h3>Parent</h3>
       <div class="button-row compact">
-        <button class="secondary" data-sheet-action="spawn-active-session">New active session</button>
-        <button class="secondary" data-sheet-action="sessions">Saved sessions</button>
+        <button class="secondary" data-sheet-action="new-parent-session">New Parent</button>
       </div>
       <div class="sheet-list">
-        ${sessions.length ? sessions.map((session) => {
-          const statusBits = [
-            session.id === state.activeSessionId ? "current" : "",
-            session.isStreaming ? "live" : "",
-            session.hasPendingUiRequest ? "needs input" : "",
-            session.model?.name || "",
-            Number.isFinite(session.messageCount) ? `${session.messageCount} messages` : "",
-            session.secondaryLabel || "",
-          ].filter(Boolean).join(" · ");
-
-          const preview = session.lastUserPreview || session.firstUserPreview || "";
-
-          return `
-            <button class="secondary" data-active-session-id="${escapeHtml(session.id)}">
-              <div><strong>${escapeHtml(session.label || "Session")}</strong></div>
-              ${statusBits ? `<div class="label">${escapeHtml(statusBits)}</div>` : ""}
-              ${preview ? `<div class="label">${escapeHtml(preview)}</div>` : ""}
-            </button>
-          `;
-        }).join("") : '<div class="label">No active sessions yet. Start one with “New active session”.</div>'}
+        ${parentSessions.length
+          ? parentSessions.map((session) => renderSessionButton(session, "parent")).join("")
+          : '<div class="label">Parent session unavailable.</div>'}
+      </div>
+    </section>
+    <section class="sheet-section">
+      <h3>Parallel</h3>
+      <div class="button-row compact">
+        <button class="secondary" data-sheet-action="new-parallel-session">New Parallel</button>
+      </div>
+      <div class="sheet-list">
+        ${parallelSessions.length
+          ? parallelSessions.map((session) => renderSessionButton(session, "parallel")).join("")
+          : '<div class="label">No parallel sessions yet. Start one with “New Parallel”.</div>'}
       </div>
     </section>
   `;
@@ -226,12 +243,16 @@ export function renderSheet() {
     models: "Models",
     thinking: "Thinking",
     sessions: "Sessions",
-    "active-sessions": "Active sessions",
+    "active-sessions": "Sessions",
     tree: "Tree",
   };
   const nextTitle = titles[state.sheetMode] || "Actions";
   if (el.sheetTitle.textContent !== nextTitle) {
     el.sheetTitle.textContent = nextTitle;
+  }
+
+  if (el.sheetSavedSessionsButton) {
+    el.sheetSavedSessionsButton.classList.toggle("hidden", state.sheetMode !== "active-sessions");
   }
 
   const sections = {

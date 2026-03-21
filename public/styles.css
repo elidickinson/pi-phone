@@ -1026,6 +1026,14 @@ pre {
   margin-bottom: 1rem;
 }
 
+.sheet-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .sheet-content {
   display: grid;
   gap: 0.9rem;

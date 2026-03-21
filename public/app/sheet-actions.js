@@ -2,6 +2,7 @@ import { renderCommandSuggestions } from "./autocomplete-controller.js";
 import {
   handleInsertOnlyLocalCommand,
   insertSlashCommand,
+  prepareParentSessionNew,
   prepareSessionSelection,
   prepareSessionSpawn,
   tryHandleLocalCommand,
@@ -33,7 +34,8 @@ export function handleSheetButtonAction(button) {
   if (action === "thinking") return openSheet("thinking"), true;
   if (action === "commands") return openSheet("commands"), true;
   if (action === "sessions") return openSheet("sessions"), true;
-  if (action === "spawn-active-session") return handleSpawnActiveSession(), true;
+  if (action === "new-parent-session") return handleNewParentSession(), true;
+  if (action === "new-parallel-session") return handleSpawnActiveSession(), true;
   if (action === "tree") return openSheet("tree"), true;
 
   const thinkingLevel = button.getAttribute("data-thinking-level");
@@ -66,6 +68,11 @@ export function handleSheetButtonAction(button) {
 
 function refreshSheet() {
   refreshAll();
+}
+
+function handleNewParentSession() {
+  if (!prepareParentSessionNew()) return;
+  closeSheet();
 }
 
 function handleSpawnActiveSession() {

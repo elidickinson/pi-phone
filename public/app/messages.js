@@ -7,6 +7,7 @@ import {
   escapeHtml,
   formatTimestamp,
   toDetailString,
+  stripTerminalControlSequences,
 } from "./formatters.js";
 import { renderMarkdownLite } from "./markdown.js";
 import { renderRichToolContent } from "./tool-rendering.js";
@@ -346,8 +347,8 @@ export function handleAssistantEvent(event) {
     };
   }
 
-  if (event.type === "text_delta") state.liveAssistant.text += event.delta || "";
-  if (event.type === "thinking_delta") state.liveAssistant.thinking += event.delta || "";
+  if (event.type === "text_delta") state.liveAssistant.text += stripTerminalControlSequences(event.delta || "");
+  if (event.type === "thinking_delta") state.liveAssistant.thinking += stripTerminalControlSequences(event.delta || "");
   if (event.type === "toolcall_end" && event.toolCall) {
     state.liveAssistant.toolCalls.push({ id: event.toolCall.id || "", name: event.toolCall.name || "tool", arguments: event.toolCall.arguments || {} });
   }

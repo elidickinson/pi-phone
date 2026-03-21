@@ -64,6 +64,16 @@ export function normalizeNewlines(text = "") {
   return String(text ?? "").replace(/\r\n?/g, "\n");
 }
 
+export function stripTerminalControlSequences(text = "") {
+  return String(text ?? "")
+    .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, "")
+    .replace(/\u009D[^\u009C]*\u009C/g, "")
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u009B[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001B[@-_]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+}
+
 export function countTextLines(text = "") {
   const normalized = normalizeNewlines(text);
   if (!normalized.length) return 0;
@@ -76,9 +86,9 @@ export function asRecord(value) {
 }
 
 export function contentToText(content) {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return stripTerminalControlSequences(content);
   if (!Array.isArray(content)) return "";
-  return content
+  return stripTerminalControlSequences(content
     .map((part) => {
       if (part.type === "text") return part.text || "";
       if (part.type === "image") return "[image]";
@@ -87,7 +97,7 @@ export function contentToText(content) {
       return "";
     })
     .join(" ")
-    .trim();
+    .trim());
 }
 
 export function countImages(content) {
@@ -100,8 +110,8 @@ export function assistantParts(content) {
   if (!Array.isArray(content)) return parts;
 
   for (const block of content) {
-    if (block.type === "text") parts.text += block.text || "";
-    if (block.type === "thinking") parts.thinking += block.thinking || "";
+    if (block.type === "text") parts.text += stripTerminalControlSequences(block.text || "");
+    if (block.type === "thinking") parts.thinking += stripTerminalControlSequences(block.thinking || "");
     if (block.type === "toolCall") {
       parts.toolCalls.push({ id: block.id || "", name: block.name || "tool", arguments: block.arguments || {} });
     }

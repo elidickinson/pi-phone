@@ -85,7 +85,6 @@
             <button id="attach-image-button" class="secondary">Attach</button>
             <button id="insert-command-button" class="secondary">Commands</button>
             <button id="cd-command-button" class="secondary">/cd</button>
-            <button id="session-browser-button" class="secondary">Sessions</button>
             <button id="steer-button" class="secondary hidden">Steer</button>
           </div>
           <div id="quota-row" class="quota-row hidden" aria-live="polite">
@@ -130,7 +129,10 @@
             <div class="eyebrow">Pi control center</div>
             <h2 id="sheet-title">Actions</h2>
           </div>
-          <button id="sheet-close-button" class="secondary">Close</button>
+          <div class="sheet-header-actions">
+            <button id="sheet-saved-sessions-button" class="secondary hidden">Saved sessions</button>
+            <button id="sheet-close-button" class="secondary">Close</button>
+          </div>
         </div>
         <div id="sheet-content" class="sheet-content"></div>
       </div>

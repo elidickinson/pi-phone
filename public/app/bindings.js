@@ -54,12 +54,12 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     insertCdCommand();
     renderCommandSuggestions();
   });
-  el.sessionBrowserButton.addEventListener("click", () => openSheet("sessions"));
   el.sessionSidebarButton.addEventListener("click", () => openSheet("active-sessions"));
   el.treeBrowserButton.addEventListener("click", () => openSheet("tree"));
   el.steerButton.addEventListener("click", () => submitPrompt({ steer: true }));
   el.sendButton.addEventListener("click", () => submitPrompt());
   el.sheetCloseButton.addEventListener("click", closeSheet);
+  el.sheetSavedSessionsButton?.addEventListener("click", () => openSheet("sessions"));
   el.attachImageButton.addEventListener("click", () => el.imageInput.click());
   el.imageInput.addEventListener("change", (event) => {
     addAttachments(event.target.files);
@@ -101,7 +101,8 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     const button = event.target.closest("button");
     if (!button) return;
 
-    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || button.getAttribute("data-sheet-action") === "spawn-active-session";
+    const sheetAction = button.getAttribute("data-sheet-action") || "";
+    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || ["new-parent-session", "new-parallel-session"].includes(sheetAction);
     if (!shouldHandleEarly) return;
 
     event.preventDefault();
