@@ -36,12 +36,68 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
     },
   });
 
+  pi.on("input", async (event, ctx) => {
+    return runtime.handleInput(event, ctx);
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     await runtime.handleSessionStart(ctx);
   });
 
   pi.on("session_switch", async (_event, ctx) => {
     await runtime.handleSessionSwitch(ctx);
+  });
+
+  pi.on("session_fork", async (_event, ctx) => {
+    await runtime.handleSessionSwitch(ctx);
+  });
+
+  pi.on("session_tree", async (_event, ctx) => {
+    await runtime.handleSessionSwitch(ctx);
+  });
+
+  pi.on("session_before_compact", async (_event, ctx) => {
+    runtime.handleParentCompactionStart(ctx);
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    runtime.handleParentCompactionEnd(ctx);
+  });
+
+  pi.on("model_select", async (_event, ctx) => {
+    await runtime.handleSessionSwitch(ctx);
+  });
+
+  pi.on("agent_start", async (_event, ctx) => {
+    runtime.handleParentAgentStart(ctx);
+  });
+
+  pi.on("agent_end", async (_event, ctx) => {
+    runtime.handleParentAgentEnd(ctx);
+  });
+
+  pi.on("message_start", async (event, ctx) => {
+    runtime.handleParentMessageStart(event, ctx);
+  });
+
+  pi.on("message_update", async (event, ctx) => {
+    runtime.handleParentMessageUpdate(event, ctx);
+  });
+
+  pi.on("message_end", async (event, ctx) => {
+    runtime.handleParentMessageEnd(event, ctx);
+  });
+
+  pi.on("tool_execution_start", async (event, ctx) => {
+    runtime.handleParentToolExecutionStart(event, ctx);
+  });
+
+  pi.on("tool_execution_update", async (event, ctx) => {
+    runtime.handleParentToolExecutionUpdate(event, ctx);
+  });
+
+  pi.on("tool_execution_end", async (event, ctx) => {
+    runtime.handleParentToolExecutionEnd(event, ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {

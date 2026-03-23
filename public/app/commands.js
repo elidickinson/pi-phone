@@ -6,7 +6,7 @@ import { findLocalCommandDefinition } from "./command-catalog.js";
 import { el, state } from "./state.js";
 import { openSheet } from "./sheet-navigation.js";
 import { refreshAll, requestReload, sendLocalCommand, sendRpc } from "./transport.js";
-import { autoResizeTextarea, renderHeader, showToast } from "./ui.js";
+import { autoResizeTextarea, renderHeader, setFollowLatest, showToast } from "./ui.js";
 import { clearSnapshotView, renderMessages } from "./messages.js";
 
 function parseLocalCommandInput(text) {
@@ -303,7 +303,8 @@ export async function submitPrompt({ steer = false } = {}) {
     rawContent: buildInlineDisplayContent(rawPrompt, images),
     imageCount: images.length,
   });
-  renderMessages();
+  setFollowLatest(true);
+  renderMessages({ forceScroll: true });
   el.promptInput.value = "";
   autoResizeTextarea();
   renderCommandSuggestions();
@@ -331,9 +332,25 @@ export function prepareSessionSelection(sessionId) {
   }
 
   clearSnapshotView();
+  setFollowLatest(true);
   renderHeader();
-  renderMessages();
+  renderMessages({ forceScroll: true });
   state.socket.send(JSON.stringify({ kind: "session-select", sessionId }));
+  return true;
+}
+
+export function prepareParentSessionNew() {
+  if (state.socket?.readyState !== WebSocket.OPEN) {
+    showToast("Not connected to Pi.", "error");
+    return false;
+  }
+
+  clearSnapshotView();
+  setFollowLatest(true);
+  renderHeader();
+  renderMessages({ forceScroll: true });
+  showToast("Starting new parent session…");
+  state.socket.send(JSON.stringify({ kind: "session-parent-new" }));
   return true;
 }
 
@@ -344,9 +361,10 @@ export function prepareSessionSpawn() {
   }
 
   clearSnapshotView();
+  setFollowLatest(true);
   renderHeader();
-  renderMessages();
-  showToast("Opening new active session…");
+  renderMessages({ forceScroll: true });
+  showToast("Opening new parallel session…");
   state.socket.send(JSON.stringify({ kind: "session-spawn" }));
   return true;
 }

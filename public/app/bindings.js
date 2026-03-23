@@ -9,7 +9,10 @@ import { connectSocket, refreshAll, sendRpc } from "./transport.js";
 import {
   autoResizeTextarea,
   closeTokenModal,
+  isNearBottom,
   scheduleComposerLayoutSync,
+  scrollMessagesToBottom,
+  setFollowLatest,
   showToast,
   storeToken,
 } from "./ui.js";
@@ -45,21 +48,40 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
   window.addEventListener("resize", scheduleComposerLayoutSync, { passive: true });
   window.visualViewport?.addEventListener("resize", scheduleComposerLayoutSync, { passive: true });
 
+  const noteUserScrollIntent = () => {
+    state.lastUserScrollIntentAt = Date.now();
+  };
+
+  const syncFollowLatestOnScroll = () => {
+    const now = Date.now();
+    const fromUser = now - state.lastUserScrollIntentAt < 400;
+    if (!fromUser && now < state.ignoreScrollTrackingUntil) return;
+    setFollowLatest(isNearBottom());
+  };
+
+  window.addEventListener("wheel", noteUserScrollIntent, { passive: true });
+  window.addEventListener("touchmove", noteUserScrollIntent, { passive: true });
+  window.addEventListener("scroll", syncFollowLatestOnScroll, { passive: true });
+
   el.refreshButton.addEventListener("click", refreshAll);
   el.abortButton.addEventListener("click", () => sendRpc({ type: "abort" }));
   el.stopButton?.addEventListener("click", () => sendRpc({ type: "abort" }));
+  el.jumpToLatestButton?.addEventListener("click", () => {
+    setFollowLatest(true);
+    scrollMessagesToBottom({ force: true, behavior: "smooth" });
+  });
   el.actionsButton.addEventListener("click", () => openSheet("actions"));
   el.insertCommandButton.addEventListener("click", () => openSheet("commands"));
   el.cdCommandButton?.addEventListener("click", () => {
     insertCdCommand();
     renderCommandSuggestions();
   });
-  el.sessionBrowserButton.addEventListener("click", () => openSheet("sessions"));
   el.sessionSidebarButton.addEventListener("click", () => openSheet("active-sessions"));
   el.treeBrowserButton.addEventListener("click", () => openSheet("tree"));
   el.steerButton.addEventListener("click", () => submitPrompt({ steer: true }));
   el.sendButton.addEventListener("click", () => submitPrompt());
   el.sheetCloseButton.addEventListener("click", closeSheet);
+  el.sheetSavedSessionsButton?.addEventListener("click", () => openSheet("sessions"));
   el.attachImageButton.addEventListener("click", () => el.imageInput.click());
   el.imageInput.addEventListener("change", (event) => {
     addAttachments(event.target.files);
@@ -72,13 +94,6 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     if (!button) return;
     removeAttachment(button.getAttribute("data-remove-attachment"));
     renderCommandSuggestions();
-  });
-
-  el.promptInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      submitPrompt();
-    }
   });
 
   el.commandStrip.addEventListener("click", (event) => {
@@ -101,7 +116,8 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     const button = event.target.closest("button");
     if (!button) return;
 
-    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || button.getAttribute("data-sheet-action") === "spawn-active-session";
+    const sheetAction = button.getAttribute("data-sheet-action") || "";
+    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || ["new-parent-session", "new-parallel-session"].includes(sheetAction);
     if (!shouldHandleEarly) return;
 
     event.preventDefault();

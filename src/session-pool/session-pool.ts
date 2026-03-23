@@ -1,15 +1,20 @@
 import type { WebSocket } from "ws";
-import { PhoneSessionWorker } from "./session-worker";
-import type { ClientState, PhoneSessionPoolOptions, SessionSnapshot, SessionSummary } from "./types";
+import type {
+  ClientState,
+  PhoneSessionPoolOptions,
+  SessionController,
+  SessionSnapshot,
+  SessionSummary,
+} from "./types";
 
 export class PhoneSessionPool {
   private readonly options: PhoneSessionPoolOptions;
-  private readonly workers = new Map<string, PhoneSessionWorker>();
+  private readonly workers = new Map<string, SessionController>();
   private readonly clients = new Map<WebSocket, ClientState>();
   private readonly statusSignatures = new Map<WebSocket, string>();
   private readonly catalogSignatures = new Map<WebSocket, string>();
   private defaultWorkerId: string | null = null;
-  private defaultWorkerPromise: Promise<PhoneSessionWorker> | null = null;
+  private defaultWorkerPromise: Promise<SessionController> | null = null;
 
   constructor(options: PhoneSessionPoolOptions) {
     this.options = options;
@@ -28,26 +33,32 @@ export class PhoneSessionPool {
     return [...this.clients.keys()];
   }
 
-  private createWorker(sessionFile: string | null = null) {
-    let worker: PhoneSessionWorker;
+  getSelectedSessionId() {
+    return this.defaultWorkerId;
+  }
 
-    worker = new PhoneSessionWorker(
-      {
-        cwd: this.options.cwd,
-        send: this.options.send,
-        onActivity: this.options.onActivity,
-        onStateChange: () => {
-          this.handleWorkerStateChange(worker);
-        },
-        onEnvelope: (currentWorker, envelope) => {
-          this.forwardEnvelope(currentWorker, envelope);
-        },
-        shouldAutoRestart: (currentWorker) => this.clients.size > 0 && this.workers.has(currentWorker.id),
-      },
-      sessionFile,
-    );
+  getSession(sessionId: string | null | undefined) {
+    if (!sessionId) return null;
+    return this.workers.get(sessionId) || null;
+  }
 
-    return worker;
+  getSessions() {
+    return [...this.workers.values()];
+  }
+
+  private attachSession(session: SessionController) {
+    this.workers.set(session.id, session);
+    return session;
+  }
+
+  private createDefaultSession() {
+    const session = this.options.createDefaultSession();
+    return this.attachSession(session);
+  }
+
+  private createParallelSession(sessionFile: string | null = null) {
+    const session = this.options.createParallelSession(sessionFile);
+    return this.attachSession(session);
   }
 
   private sortedWorkers() {
@@ -70,8 +81,7 @@ export class PhoneSessionPool {
     }
 
     this.defaultWorkerPromise = (async () => {
-      const worker = this.createWorker();
-      this.workers.set(worker.id, worker);
+      const worker = this.createDefaultSession();
       this.defaultWorkerId = worker.id;
 
       try {
@@ -138,7 +148,7 @@ export class PhoneSessionPool {
     });
   }
 
-  private handleWorkerStateChange(_worker: PhoneSessionWorker) {
+  private handleWorkerStateChange(_worker: SessionController) {
     this.broadcastCatalog();
     this.broadcastStatus();
   }
@@ -147,7 +157,15 @@ export class PhoneSessionPool {
     const worker = this.defaultWorkerId ? this.workers.get(this.defaultWorkerId) : this.sortedWorkers()[0] || null;
     return {
       ...this.buildBaseStatus(),
-      ...(worker ? worker.getStatus() : { childRunning: false, isStreaming: false, lastError: "", childPid: null, sessionWorkerId: null }),
+      ...(worker ? worker.getStatus() : {
+        childRunning: false,
+        isStreaming: false,
+        isCompacting: false,
+        lastError: "",
+        childPid: null,
+        sessionWorkerId: null,
+        sessionKind: "parallel",
+      }),
     };
   }
 
@@ -156,7 +174,15 @@ export class PhoneSessionPool {
     const worker = client?.activeSessionId ? this.workers.get(client.activeSessionId) : null;
     return {
       ...this.buildBaseStatus(),
-      ...(worker ? worker.getStatus() : { childRunning: false, isStreaming: false, lastError: "", childPid: null, sessionWorkerId: null }),
+      ...(worker ? worker.getStatus() : {
+        childRunning: false,
+        isStreaming: false,
+        isCompacting: false,
+        lastError: "",
+        childPid: null,
+        sessionWorkerId: null,
+        sessionKind: "parallel",
+      }),
       activeSessionId: client?.activeSessionId || null,
     };
   }
@@ -172,7 +198,7 @@ export class PhoneSessionPool {
     this.options.send(ws, { channel: "server", event: "status", data });
   }
 
-  private sendSnapshot(ws: WebSocket, worker: PhoneSessionWorker, snapshot: SessionSnapshot) {
+  private sendSnapshot(ws: WebSocket, worker: SessionController, snapshot: SessionSnapshot) {
     this.options.send(ws, {
       channel: "snapshot",
       sessionWorkerId: worker.id,
@@ -215,7 +241,7 @@ export class PhoneSessionPool {
     }
   }
 
-  private forwardEnvelope(worker: PhoneSessionWorker, envelope: any) {
+  private forwardEnvelope(worker: SessionController, envelope: any) {
     for (const [ws, client] of this.clients.entries()) {
       if (client.activeSessionId === worker.id) {
         this.options.send(ws, envelope);
@@ -225,7 +251,7 @@ export class PhoneSessionPool {
 
   async addClient(ws: WebSocket) {
     const worker = await this.ensureDefaultWorker();
-    this.clients.set(ws, { activeSessionId: worker.id });
+    this.clients.set(ws, { activeSessionId: this.defaultWorkerId || worker.id });
     this.sendStatus(ws, { force: true });
     this.sendCatalog(ws, { force: true });
     await this.refreshActiveSnapshot(ws);
@@ -275,7 +301,7 @@ export class PhoneSessionPool {
   async selectSession(ws: WebSocket, sessionId: string) {
     const worker = this.workers.get(sessionId);
     if (!worker) {
-      this.options.send(ws, { channel: "server", event: "client-error", data: { message: "That active session no longer exists." } });
+      this.options.send(ws, { channel: "server", event: "client-error", data: { message: "That session no longer exists." } });
       return;
     }
 
@@ -294,14 +320,13 @@ export class PhoneSessionPool {
     await this.refreshActiveSnapshot(ws);
   }
 
-  async spawnSession(ws: WebSocket) {
-    const worker = this.createWorker();
+  async spawnSession(ws: WebSocket, sessionFile: string | null = null) {
+    const worker = this.createParallelSession(sessionFile);
     let added = false;
     const existingClient = this.clients.get(ws);
     const previousActiveSessionId = existingClient?.activeSessionId || null;
 
     try {
-      this.workers.set(worker.id, worker);
       added = true;
       this.defaultWorkerId = worker.id;
 
@@ -320,6 +345,7 @@ export class PhoneSessionPool {
       this.broadcastCatalog();
       this.broadcastStatus();
       await this.refreshActiveSnapshot(ws);
+      return worker;
     } catch (error) {
       if (added) {
         this.workers.delete(worker.id);
@@ -345,6 +371,74 @@ export class PhoneSessionPool {
       this.broadcastStatus();
       throw error;
     }
+  }
+
+  async removeSession(sessionId: string, options: { dispose?: boolean; fallbackSessionId?: string | null } = {}) {
+    const worker = this.workers.get(sessionId);
+    if (!worker) return false;
+
+    const { dispose = true } = options;
+    this.workers.delete(sessionId);
+
+    let fallbackWorker = options.fallbackSessionId ? this.workers.get(options.fallbackSessionId) || null : null;
+    if (!fallbackWorker) {
+      fallbackWorker = this.defaultWorkerId && this.defaultWorkerId !== sessionId
+        ? this.workers.get(this.defaultWorkerId) || null
+        : null;
+    }
+    if (!fallbackWorker) {
+      fallbackWorker = this.sortedWorkers()[0] || null;
+    }
+
+    if (this.defaultWorkerId === sessionId) {
+      this.defaultWorkerId = fallbackWorker?.id || null;
+    }
+
+    for (const client of this.clients.values()) {
+      if (client.activeSessionId === sessionId) {
+        client.activeSessionId = fallbackWorker?.id || null;
+      }
+    }
+
+    if (dispose) {
+      await worker.dispose().catch(() => {});
+    }
+
+    this.broadcastCatalog();
+    this.broadcastStatus();
+    await Promise.all(this.getClients().map(async (ws) => {
+      const client = this.clients.get(ws);
+      if (!client?.activeSessionId) return;
+      await this.refreshActiveSnapshot(ws).catch(() => {});
+    }));
+
+    return true;
+  }
+
+  setDefaultWorker(sessionId: string | null) {
+    this.defaultWorkerId = sessionId && this.workers.has(sessionId) ? sessionId : this.sortedWorkers()[0]?.id || null;
+    for (const client of this.clients.values()) {
+      if (!client.activeSessionId || !this.workers.has(client.activeSessionId)) {
+        client.activeSessionId = this.defaultWorkerId;
+      }
+    }
+    this.broadcastCatalog();
+    this.broadcastStatus();
+  }
+
+  bindExternalSession(session: SessionController) {
+    this.attachSession(session);
+    if (!this.defaultWorkerId) {
+      this.defaultWorkerId = session.id;
+    }
+  }
+
+  notifySessionStateChanged(session: SessionController) {
+    this.handleWorkerStateChange(session);
+  }
+
+  forwardSessionEnvelope(session: SessionController, envelope: any) {
+    this.forwardEnvelope(session, envelope);
   }
 
   async closeAllClients(options: { payload?: unknown; code?: number; reason?: string } = {}) {

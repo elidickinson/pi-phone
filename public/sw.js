@@ -1,4 +1,4 @@
-const CACHE = "pi-phone-v16";
+const CACHE = "pi-phone-v17";
 const ASSETS = [
   "/",
   "/styles.css",

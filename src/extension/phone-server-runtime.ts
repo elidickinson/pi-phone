@@ -2,6 +2,8 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  InputEvent,
+  InputEventResult,
 } from "@mariozechner/pi-coding-agent";
 import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
@@ -9,8 +11,10 @@ import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { PhoneParentSessionWorker } from "../session-pool/parent-session-worker";
 import { PhoneSessionPool } from "../session-pool/session-pool";
 import { PhoneSessionWorker } from "../session-pool/session-worker";
+import type { SessionController } from "../session-pool/types";
 import { parsePhoneStartArgs } from "./phone-args";
 import { listPhonePathSuggestions, resolvePhoneCdTargetPath } from "./phone-paths";
 import { getQuotaForModel } from "./phone-quota";
@@ -78,6 +82,10 @@ export class PhoneServerRuntime {
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
   private sessionPool: PhoneSessionPool | null = null;
+  private parentWorker: PhoneParentSessionWorker | null = null;
+  private latestCommandCtx: ExtensionCommandContext | null = null;
+  private controlOwner: "cli" | "phone" = "cli";
+  private phoneSelectedSessionId: string | null = null;
   private idleStopTimer: NodeJS.Timeout | null = null;
   private lastActivityAt = Date.now();
   private runtimeControlToken = "";
@@ -87,6 +95,9 @@ export class PhoneServerRuntime {
 
   captureCtx(ctx: AnyCtx) {
     this.latestCtx = ctx;
+    if (typeof (ctx as ExtensionCommandContext).waitForIdle === "function") {
+      this.latestCommandCtx = ctx as ExtensionCommandContext;
+    }
   }
 
   private activeCwd() {
@@ -109,7 +120,7 @@ export class PhoneServerRuntime {
       lastError: this.latestError,
       pid: process.pid,
       childPid: null,
-      piCommand: "pi --mode rpc",
+      piCommand: "live cli + parallel pi --mode rpc",
       connectedClients: 0,
       sessionCount: 0,
       host: this.config.host,
@@ -117,6 +128,7 @@ export class PhoneServerRuntime {
       idleTimeoutMs: this.config.idleTimeoutMs,
       lastActivityAt: this.lastActivityAt,
       singleClientMode: true,
+      controlOwner: this.controlOwner,
       ...(theme ? { theme } : {}),
     };
   }
@@ -191,12 +203,12 @@ export class PhoneServerRuntime {
     return this.sessionPool.getActiveWorker(ws);
   }
 
-  private async getCurrentSessionFileForWorker(worker: PhoneSessionWorker) {
+  private async getCurrentSessionFileForWorker(worker: SessionController) {
     const stateResponse = await worker.request({ type: "get_state" });
     return stateResponse.data?.sessionFile as string | undefined;
   }
 
-  private async getTreeStateForWorker(worker: PhoneSessionWorker) {
+  private async getTreeStateForWorker(worker: SessionController) {
     const sessionFile = await this.getCurrentSessionFileForWorker(worker);
     if (!sessionFile) {
       throw new Error("No session file available for tree view.");
@@ -204,7 +216,7 @@ export class PhoneServerRuntime {
     return getTreeStateFromSessionFile(sessionFile);
   }
 
-  private async createBranchSessionFromEntryForWorker(worker: PhoneSessionWorker, entryId: string) {
+  private async createBranchSessionFromEntryForWorker(worker: SessionController, entryId: string) {
     const sessionFile = await this.getCurrentSessionFileForWorker(worker);
     if (!sessionFile) {
       throw new Error("No active session file.");
@@ -212,7 +224,7 @@ export class PhoneServerRuntime {
     return createBranchSessionFromEntry(sessionFile, entryId);
   }
 
-  private async resolveRemoteSlashCommandForWorker(worker: PhoneSessionWorker, text: unknown): Promise<SlashCommandMatch | null> {
+  private async resolveRemoteSlashCommandForWorker(worker: SessionController, text: unknown): Promise<SlashCommandMatch | null> {
     const parsed = parseSlashCommandText(text);
     if (!parsed) return null;
 
@@ -231,7 +243,7 @@ export class PhoneServerRuntime {
   }
 
   private async dispatchRemoteSlashCommandForWorker(
-    worker: PhoneSessionWorker,
+    worker: SessionController,
     ws: WebSocket,
     input: {
       text: string;
@@ -299,6 +311,140 @@ export class PhoneServerRuntime {
     });
 
     return true;
+  }
+
+  private rememberPhoneSelection(session: SessionController | null) {
+    if (!session) return;
+    this.phoneSelectedSessionId = session.id;
+  }
+
+  private selectedSessionId() {
+    if (this.phoneSelectedSessionId && this.sessionPool?.getSession(this.phoneSelectedSessionId)) {
+      return this.phoneSelectedSessionId;
+    }
+    return this.sessionPool?.getSelectedSessionId() || this.parentWorker?.id || null;
+  }
+
+  private selectedSession() {
+    return this.sessionPool?.getSession(this.selectedSessionId()) || this.parentWorker || null;
+  }
+
+  private setControlOwner(owner: "cli" | "phone") {
+    if (this.controlOwner === owner) return;
+    this.controlOwner = owner;
+    this.broadcastStatus();
+  }
+
+  private parentBusy() {
+    const status = this.parentWorker?.getStatus();
+    return Boolean(status?.isStreaming || status?.isCompacting || this.parentWorker?.pendingUiRequest);
+  }
+
+  private releaseParentOwnershipIfAvailable() {
+    if (!this.parentBusy() && this.selectedSession()?.kind !== "parent") {
+      this.setControlOwner("cli");
+    }
+  }
+
+  private async ensurePhoneCanWrite(ws: WebSocket, worker: SessionController) {
+    if (worker.kind !== "parent") {
+      this.releaseParentOwnershipIfAvailable();
+      return true;
+    }
+
+    if (this.controlOwner === "cli" && this.parentBusy()) {
+      this.send(ws, {
+        channel: "server",
+        event: "client-error",
+        data: { message: "Wait for the current CLI parent response to finish before editing the parent session from the phone." },
+      });
+      return false;
+    }
+
+    this.setControlOwner("phone");
+    return true;
+  }
+
+  handleInput(event: InputEvent, ctx: ExtensionContext): InputEventResult | Promise<InputEventResult> {
+    this.captureCtx(ctx);
+    if (!this.server || !this.sessionPool || event.source !== "interactive") {
+      return { action: "continue" };
+    }
+    if (this.controlOwner !== "phone") {
+      return { action: "continue" };
+    }
+
+    const selected = this.selectedSession();
+    if (!selected) {
+      this.setControlOwner("cli");
+      return { action: "continue" };
+    }
+
+    if (selected.kind !== "parent") {
+      this.releaseParentOwnershipIfAvailable();
+      return { action: "continue" };
+    }
+
+    this.rememberPhoneSelection(selected);
+    if (this.parentBusy()) {
+      ctx.ui.notify("Wait for the current phone parent response to finish before taking control back in the CLI.", "warning");
+      return { action: "handled" };
+    }
+
+    this.setControlOwner("cli");
+    return { action: "continue" };
+  }
+
+  handleParentAgentStart(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleAgentStart(ctx);
+  }
+
+  handleParentAgentEnd(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleAgentEnd(ctx);
+    this.releaseParentOwnershipIfAvailable();
+  }
+
+  handleParentMessageStart(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleMessageStart(event, ctx);
+  }
+
+  handleParentMessageUpdate(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleMessageUpdate(event, ctx);
+  }
+
+  handleParentMessageEnd(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleMessageEnd(event, ctx);
+  }
+
+  handleParentToolExecutionStart(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleToolExecutionStart(event);
+  }
+
+  handleParentToolExecutionUpdate(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleToolExecutionUpdate(event);
+  }
+
+  handleParentToolExecutionEnd(event: any, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.handleToolExecutionEnd(event);
+  }
+
+  handleParentCompactionStart(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.setCompacting(true, ctx);
+  }
+
+  handleParentCompactionEnd(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    this.parentWorker?.setCompacting(false, ctx);
+    this.releaseParentOwnershipIfAvailable();
   }
 
   private async handleHttp(req: IncomingMessage, res: ServerResponse) {
@@ -419,11 +565,61 @@ export class PhoneServerRuntime {
           idleTimeoutMs: this.config.idleTimeoutMs,
           lastActivityAt: this.lastActivityAt,
           singleClientMode: true,
+          controlOwner: this.controlOwner,
           pid: process.pid,
-          piCommand: "pi --mode rpc",
+          piCommand: "live cli + parallel pi --mode rpc",
           serverRunning: Boolean(this.server),
           ...(theme ? { theme } : {}),
         };
+      },
+      createDefaultSession: () => {
+        const worker = new PhoneParentSessionWorker(
+          {
+            cwd: this.config.cwd,
+            send: (ws, payload) => this.send(ws, payload),
+            onActivity: () => this.markActivity(),
+            onStateChange: () => {
+              this.sessionPool?.notifySessionStateChanged(worker);
+              if ((this.sessionPool?.clientCount || 0) === 0) {
+                this.setControlOwner("cli");
+              }
+            },
+            onEnvelope: (_currentWorker, envelope) => {
+              this.sessionPool?.forwardSessionEnvelope(worker, envelope);
+            },
+            shouldAutoRestart: () => false,
+            getCtx: () => this.latestCtx,
+            getCommandCtx: () => this.latestCommandCtx,
+          },
+          this.pi,
+        );
+        this.parentWorker = worker;
+        if (!this.phoneSelectedSessionId) {
+          this.rememberPhoneSelection(worker);
+        }
+        return worker;
+      },
+      createParallelSession: (sessionFile) => {
+        let worker: PhoneSessionWorker;
+        worker = new PhoneSessionWorker(
+          {
+            cwd: this.config.cwd,
+            send: (ws, payload) => this.send(ws, payload),
+            onActivity: () => this.markActivity(),
+            onStateChange: () => {
+              this.sessionPool?.notifySessionStateChanged(worker);
+              if ((this.sessionPool?.clientCount || 0) === 0) {
+                this.setControlOwner("cli");
+              }
+            },
+            onEnvelope: (_currentWorker, envelope) => {
+              this.sessionPool?.forwardSessionEnvelope(worker, envelope);
+            },
+            shouldAutoRestart: (currentWorker) => Boolean(this.sessionPool && this.sessionPool.clientCount > 0 && this.sessionPool.getSession(currentWorker.id)),
+          },
+          sessionFile,
+        );
+        return worker;
       },
     });
 
@@ -463,6 +659,9 @@ export class PhoneServerRuntime {
 
       ws.on("close", () => {
         this.sessionPool?.removeClient(ws);
+        if ((this.sessionPool?.clientCount || 0) === 0) {
+          this.setControlOwner("cli");
+        }
         this.markActivity();
         this.broadcastStatus();
       });
@@ -531,6 +730,9 @@ export class PhoneServerRuntime {
       await this.sessionPool.dispose();
       this.sessionPool = null;
     }
+    this.parentWorker = null;
+    this.controlOwner = "cli";
+    this.phoneSelectedSessionId = null;
 
     if (this.wss) {
       const runningWss = this.wss;
@@ -578,18 +780,50 @@ export class PhoneServerRuntime {
     }
 
     if (message.kind === "session-select") {
-      await this.sessionPool.selectSession(ws, String(message.sessionId || ""));
+      const sessionId = String(message.sessionId || "");
+      await this.sessionPool.selectSession(ws, sessionId);
+      this.rememberPhoneSelection(this.sessionPool.getSession(sessionId));
+      this.releaseParentOwnershipIfAvailable();
+      return;
+    }
+
+    if (message.kind === "session-parent-new") {
+      if (!this.parentWorker) {
+        await this.sessionPool.ensureDefaultWorker();
+      }
+      const worker = this.parentWorker;
+      if (!worker || worker.kind !== "parent") {
+        throw new Error("Parent session is not available.");
+      }
+      if (!(await this.ensurePhoneCanWrite(ws, worker))) {
+        return;
+      }
+      await this.sessionPool.selectSession(ws, worker.id);
+      this.sessionPool.setDefaultWorker(worker.id);
+      this.rememberPhoneSelection(worker);
+      await worker.sendClientCommand({ type: "new_session" }, {
+        ws,
+        responseCommand: "new_parent_session",
+      });
       return;
     }
 
     if (message.kind === "session-spawn") {
-      await this.sessionPool.spawnSession(ws);
-      this.send(ws, { channel: "server", event: "session-spawned", data: { message: "Opened new active session." } });
+      const worker = await this.sessionPool.spawnSession(ws);
+      this.rememberPhoneSelection(worker);
+      this.releaseParentOwnershipIfAvailable();
+      this.send(ws, { channel: "server", event: "session-spawned", data: { message: "Opened new parallel session." } });
       return;
     }
 
     if (message.kind === "local-command") {
       const worker = await this.getActiveWorkerForClient(ws);
+      this.rememberPhoneSelection(worker);
+      const localCommandType = message.command && typeof message.command === "object" ? message.command.type : message.command;
+      const localCommandMutates = localCommandType === "reload" || localCommandType === "cd" || localCommandType === "slash-command";
+      if (localCommandMutates && !(await this.ensurePhoneCanWrite(ws, worker))) {
+        return;
+      }
 
       if (message.command === "reload") {
         try {
@@ -675,7 +909,7 @@ export class PhoneServerRuntime {
               responseCommand: "cd",
               responseData: { cwd: nextCwd, previousCwd },
               onSuccess: () => {
-                worker.setTrackedCwd(nextCwd, previousCwd);
+                worker.setTrackedCwd?.(nextCwd, previousCwd);
                 this.sessionPool?.setCwd(nextCwd);
                 this.config.cwd = nextCwd;
               },
@@ -750,6 +984,11 @@ export class PhoneServerRuntime {
     }
 
     const worker = await this.getActiveWorkerForClient(ws);
+    this.rememberPhoneSelection(worker);
+    const readOnlyCommandTypes = new Set(["get_state", "get_messages", "get_commands", "get_available_models", "get_session_stats", "phone_get_tree", "phone_list_sessions"]);
+    if (!readOnlyCommandTypes.has(String(command.type || "")) && !(await this.ensurePhoneCanWrite(ws, worker))) {
+      return;
+    }
 
     if (command.type === "phone_get_tree") {
       const tree = await this.getTreeStateForWorker(worker);
@@ -809,7 +1048,7 @@ export class PhoneServerRuntime {
     const url = `http://${this.config.host}:${this.config.port}`;
     const idleMinutes = this.config.idleTimeoutMs > 0 ? `${Math.max(1, Math.round(this.config.idleTimeoutMs / 60_000))}m idle auto-stop` : "idle auto-stop disabled";
     return this.server
-      ? `Pi Phone running at ${url} for ${this.config.cwd}${this.config.token ? " (token enabled)" : " (no token)"} · ${idleMinutes}`
+      ? `Pi Phone running at ${url} for ${this.config.cwd}${this.config.token ? " (token enabled)" : " (no token)"} · mirroring the current CLI session with optional parallel sessions · owner: ${this.controlOwner} · ${idleMinutes}`
       : "Pi Phone is stopped";
   }
 
@@ -917,6 +1156,11 @@ export class PhoneServerRuntime {
     this.captureCtx(ctx);
     if (!this.server) {
       this.config.cwd = this.activeCwd();
+    } else {
+      this.parentWorker?.captureContext(ctx, { emitSnapshot: true });
+      if (!this.phoneSelectedSessionId || !this.sessionPool?.getSession(this.phoneSelectedSessionId)) {
+        this.rememberPhoneSelection(this.parentWorker);
+      }
     }
     this.updateStatusUi(ctx);
     this.broadcastStatus();
@@ -926,6 +1170,11 @@ export class PhoneServerRuntime {
     this.captureCtx(ctx);
     if (!this.server) {
       this.config.cwd = this.activeCwd();
+    } else {
+      this.parentWorker?.captureContext(ctx, { emitSnapshot: true });
+      if (!this.phoneSelectedSessionId || this.phoneSelectedSessionId === this.parentWorker?.id) {
+        this.rememberPhoneSelection(this.parentWorker);
+      }
     }
     this.updateStatusUi(ctx);
     this.broadcastStatus();

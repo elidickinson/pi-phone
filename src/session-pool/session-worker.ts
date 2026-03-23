@@ -14,6 +14,7 @@ let workerCounter = 0;
 
 export class PhoneSessionWorker {
   id = `active-session-${++workerCounter}`;
+  kind = "parallel" as const;
   cwd: string;
   previousCwd: string | null = null;
   currentSessionFile: string | null;
@@ -187,9 +188,11 @@ export class PhoneSessionWorker {
       cwd: this.cwd,
       previousCwd: this.previousCwd,
       isStreaming: this.isStreaming,
+      isCompacting: Boolean(this.lastState?.isCompacting),
       lastError: this.lastError,
       childPid: this.child?.pid ?? null,
       sessionWorkerId: this.id,
+      sessionKind: "parallel" as const,
     };
   }
 
@@ -207,6 +210,7 @@ export class PhoneSessionWorker {
 
     return {
       id: this.id,
+      kind: "parallel",
       sessionId,
       sessionFile: this.currentSessionFile || this.lastState?.sessionFile || null,
       sessionName,
@@ -230,6 +234,7 @@ export class PhoneSessionWorker {
       lastError: this.lastError,
       lastActivityAt: this.lastActivityAt,
       childPid: this.child?.pid ?? null,
+      cwd: this.cwd,
     };
   }
 

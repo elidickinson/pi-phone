@@ -1,8 +1,15 @@
 import { THEME_CSS_VARIABLES, TOKEN_STORAGE_KEY } from "./constants.js";
-import { formatCwdDisplay, formatTokenCount } from "./formatters.js";
+import { formatCwdDisplay, formatTokenCount, stripTerminalControlSequences } from "./formatters.js";
 import { el, state } from "./state.js";
 
 let composerLayoutFrame = 0;
+let messageScrollFrame = 0;
+let pendingMessageScroll = { force: false, streaming: false, behavior: "smooth" };
+
+const NEAR_BOTTOM_THRESHOLD = 120;
+const STREAM_FOLLOW_INTERVAL_MS = 320;
+const STREAM_FOLLOW_MIN_HEIGHT_DELTA = 16;
+const PROGRAMMATIC_SCROLL_GUARD_MS = 700;
 
 export function storeToken(token) {
   if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -93,30 +100,122 @@ function isAnyModalOpen() {
   return !el.sheetModal.classList.contains("hidden") || !el.uiModal.classList.contains("hidden") || !el.loginModal.classList.contains("hidden");
 }
 
-export function scrollMessagesToBottom() {
-  if (isAnyModalOpen()) return;
-  requestAnimationFrame(() => {
+function scrollingElement() {
+  return document.scrollingElement || document.documentElement;
+}
+
+export function isNearBottom(threshold = NEAR_BOTTOM_THRESHOLD) {
+  const root = scrollingElement();
+  if (!root) return true;
+  const scrollTop = typeof window.scrollY === "number" ? window.scrollY : root.scrollTop;
+  const viewportHeight = window.innerHeight || root.clientHeight || 0;
+  return root.scrollHeight - (scrollTop + viewportHeight) <= threshold;
+}
+
+export function updateJumpToLatestButton() {
+  if (!el.jumpToLatestButton) return;
+  const hasMessages = Boolean(state.messages.length || state.liveAssistant || state.liveTools.size);
+  const shouldShow = hasMessages && !isAnyModalOpen() && !state.followLatest && !isNearBottom();
+  el.jumpToLatestButton.classList.toggle("hidden", !shouldShow);
+}
+
+export function setFollowLatest(value) {
+  state.followLatest = Boolean(value);
+  if (state.followLatest) {
+    state.lastAutoFollowAt = 0;
+    state.lastAutoFollowHeight = 0;
+  }
+  updateJumpToLatestButton();
+}
+
+export function scrollMessagesToBottom({ force = false, streaming = false, behavior = "smooth" } = {}) {
+  if (isAnyModalOpen()) {
+    updateJumpToLatestButton();
+    return;
+  }
+
+  pendingMessageScroll = {
+    force: pendingMessageScroll.force || force,
+    streaming: pendingMessageScroll.streaming || streaming,
+    behavior,
+  };
+
+  if (messageScrollFrame) return;
+  messageScrollFrame = requestAnimationFrame(() => {
+    messageScrollFrame = 0;
+    const nextScroll = pendingMessageScroll;
+    pendingMessageScroll = { force: false, streaming: false, behavior: "smooth" };
+
+    if (isAnyModalOpen()) {
+      updateJumpToLatestButton();
+      return;
+    }
+
     syncComposerReserve();
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    const root = scrollingElement();
+    if (!root) {
+      updateJumpToLatestButton();
+      return;
+    }
+
+    if (!nextScroll.force && !state.followLatest && !isNearBottom()) {
+      updateJumpToLatestButton();
+      return;
+    }
+
+    const scrollTop = typeof window.scrollY === "number" ? window.scrollY : root.scrollTop;
+    const viewportHeight = window.innerHeight || root.clientHeight || 0;
+    const targetTop = Math.max(0, root.scrollHeight - viewportHeight);
+    const now = Date.now();
+    const heightDelta = Math.abs(root.scrollHeight - state.lastAutoFollowHeight);
+
+    if (!nextScroll.force && nextScroll.streaming) {
+      if (state.lastAutoFollowAt && now - state.lastAutoFollowAt < STREAM_FOLLOW_INTERVAL_MS) {
+        updateJumpToLatestButton();
+        return;
+      }
+      if (state.lastAutoFollowHeight && heightDelta < STREAM_FOLLOW_MIN_HEIGHT_DELTA) {
+        updateJumpToLatestButton();
+        return;
+      }
+    }
+
+    if (Math.abs(targetTop - scrollTop) < 2) {
+      state.lastAutoFollowAt = now;
+      state.lastAutoFollowHeight = root.scrollHeight;
+      state.followLatest = true;
+      updateJumpToLatestButton();
+      return;
+    }
+
+    state.ignoreScrollTrackingUntil = now + PROGRAMMATIC_SCROLL_GUARD_MS;
+    window.scrollTo({ top: targetTop, behavior: nextScroll.behavior });
+    state.lastAutoFollowAt = now;
+    state.lastAutoFollowHeight = root.scrollHeight;
+    state.followLatest = true;
+    updateJumpToLatestButton();
   });
 }
 
 export function showBanner(text, kind = "info") {
-  if (!text) {
+  const cleanText = stripTerminalControlSequences(text || "").trim();
+  if (!cleanText) {
     el.banner.classList.add("hidden");
     el.banner.textContent = "";
     el.banner.classList.remove("error");
     return;
   }
-  el.banner.textContent = text;
+  el.banner.textContent = cleanText;
   el.banner.classList.toggle("error", kind === "error");
   el.banner.classList.remove("hidden");
 }
 
 export function showToast(text, kind = "info") {
+  const cleanText = stripTerminalControlSequences(text || "").trim();
+  if (!cleanText) return;
   const toast = document.createElement("div");
   toast.className = `toast ${kind === "error" ? "error" : ""}`;
-  toast.textContent = text;
+  toast.textContent = cleanText;
   el.toastHost.appendChild(toast);
   setTimeout(() => toast.remove(), 3500);
 }
@@ -219,7 +318,8 @@ export function renderHeader() {
   el.sessionValue.textContent = snapshot.sessionName || snapshot.sessionId || activeSession?.label || "Current session";
   el.modelValue.textContent = snapshot.model?.name || snapshot.model?.id || activeSession?.model?.name || "Default";
   el.thinkingValue.textContent = snapshot.thinkingLevel || "—";
-  el.streamingValue.textContent = status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle";
+  const owner = status.controlOwner || "cli";
+  el.streamingValue.textContent = `${status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle"} · ${owner}`;
   el.serverValue.textContent = status.port ? `${status.host || "127.0.0.1"}:${status.port}` : "—";
   updateComposerState();
   renderQuota();

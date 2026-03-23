@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0f14" />
     <title>Pi Phone</title>
-    <link rel="manifest" href="/manifest.webmanifest?v=20260318-1" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20260323-1" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <link rel="stylesheet" href="/styles.css?v=20260318-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260323-1" />
   </head>
   <body>
     <button id="session-sidebar-button" class="sidebar-toggle-button secondary" aria-label="Open session browser" title="Open session browser">☰ Sessions</button>
@@ -77,6 +77,7 @@
               autocomplete="off"
               autocapitalize="sentences"
               spellcheck="true"
+              enterkeyhint="enter"
             ></textarea>
             <button id="stop-button" class="composer-inline-button stop-button danger hidden" aria-label="Stop response" title="Stop response">Stop</button>
             <button id="send-button" class="composer-inline-button send-button" aria-label="Send message" title="Send message">&gt;</button>
@@ -85,7 +86,6 @@
             <button id="attach-image-button" class="secondary">Attach</button>
             <button id="insert-command-button" class="secondary">Commands</button>
             <button id="cd-command-button" class="secondary">/cd</button>
-            <button id="session-browser-button" class="secondary">Sessions</button>
             <button id="steer-button" class="secondary hidden">Steer</button>
           </div>
           <div id="quota-row" class="quota-row hidden" aria-live="polite">
@@ -130,14 +130,18 @@
             <div class="eyebrow">Pi control center</div>
             <h2 id="sheet-title">Actions</h2>
           </div>
-          <button id="sheet-close-button" class="secondary">Close</button>
+          <div class="sheet-header-actions">
+            <button id="sheet-saved-sessions-button" class="secondary hidden">Saved sessions</button>
+            <button id="sheet-close-button" class="secondary">Close</button>
+          </div>
         </div>
         <div id="sheet-content" class="sheet-content"></div>
       </div>
     </div>
 
+    <button id="jump-to-latest-button" class="jump-to-latest-button hidden secondary" type="button" aria-label="Jump to latest message">▾</button>
     <div id="toast-host" class="toast-host"></div>
 
-    <script type="module" src="/app.js?v=20260318-1"></script>
+    <script type="module" src="/app.js?v=20260323-2"></script>
   </body>
 </html>

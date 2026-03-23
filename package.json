@@ -1,6 +1,6 @@
 {
   "name": "@malinamnam/pi-phone",
-  "version": "0.0.9",
+  "version": "0.0.13",
   "description": "Phone-first remote UI extension for Pi with Cloudflare tunnel access",
   "type": "module",
   "homepage": "https://github.com/MaliNamNam/pi-phone#readme",

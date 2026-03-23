@@ -162,6 +162,13 @@ function handleRpcPayload(payload) {
       return;
     }
 
+    if (payload.command === "new_parent_session") {
+      clearTransientState();
+      refreshAll();
+      showToast("Started a new parent session.");
+      return;
+    }
+
     if (payload.command === "new_session") {
       clearTransientState();
       refreshAll();
@@ -170,7 +177,7 @@ function handleRpcPayload(payload) {
     }
 
     if (payload.command === "compact") {
-      showToast("Compaction completed.");
+      showToast("Compaction triggered.");
       refreshAll();
       return;
     }
@@ -408,7 +415,7 @@ export async function handleEnvelope(event) {
       return;
     }
     if (event.event === "session-spawned") {
-      showToast(event.data?.message || "Opened new active session.");
+      showToast(event.data?.message || "Opened new parallel session.");
       return;
     }
     if (event.event === "single-client-replaced") {
