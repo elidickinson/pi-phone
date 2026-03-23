@@ -1071,6 +1071,23 @@ pre {
   color: var(--accent);
 }
 
+.jump-to-latest-button {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--composer-reserve) - 0.35rem);
+  transform: translateX(-50%);
+  z-index: 20;
+  min-width: 3.2rem;
+  padding: 0.82rem;
+  border-radius: 999px;
+  background: rgba(20, 32, 42, 0.96);
+  color: var(--text);
+  font-size: 1.45rem;
+  line-height: 1;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
 .toast-host {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 0.75rem);

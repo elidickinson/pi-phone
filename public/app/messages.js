@@ -11,7 +11,7 @@ import {
 } from "./formatters.js";
 import { renderMarkdownLite } from "./markdown.js";
 import { renderRichToolContent } from "./tool-rendering.js";
-import { scrollMessagesToBottom, showToast } from "./ui.js";
+import { scrollMessagesToBottom, showToast, updateJumpToLatestButton } from "./ui.js";
 
 const INLINE_USER_CUSTOM_TYPES = new Set(["phone-inline-user-message"]);
 
@@ -321,6 +321,14 @@ function currentItems() {
   return enrichToolItems(items);
 }
 
+function hasLiveItems() {
+  if (state.liveAssistant?.live) return true;
+  for (const tool of state.liveTools.values()) {
+    if (tool?.live) return true;
+  }
+  return false;
+}
+
 export function clearTransientState() {
   state.liveAssistant = null;
   state.liveTools.clear();
@@ -361,7 +369,7 @@ export function upsertLiveTool(toolId, value) {
   renderMessages();
 }
 
-export function renderMessages() {
+export function renderMessages({ forceScroll = false, streaming = hasLiveItems() } = {}) {
   const items = currentItems();
   if (!items.length) {
     el.messages.innerHTML = `
@@ -372,11 +380,13 @@ export function renderMessages() {
         </div>
       </article>
     `;
+    updateJumpToLatestButton();
     return;
   }
 
   el.messages.innerHTML = items.map(renderMessage).join("");
-  scrollMessagesToBottom();
+  updateJumpToLatestButton();
+  scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
 }
 
 export function renderWidgets() {

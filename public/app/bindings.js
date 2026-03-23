@@ -9,7 +9,10 @@ import { connectSocket, refreshAll, sendRpc } from "./transport.js";
 import {
   autoResizeTextarea,
   closeTokenModal,
+  isNearBottom,
   scheduleComposerLayoutSync,
+  scrollMessagesToBottom,
+  setFollowLatest,
   showToast,
   storeToken,
 } from "./ui.js";
@@ -45,9 +48,28 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
   window.addEventListener("resize", scheduleComposerLayoutSync, { passive: true });
   window.visualViewport?.addEventListener("resize", scheduleComposerLayoutSync, { passive: true });
 
+  const noteUserScrollIntent = () => {
+    state.lastUserScrollIntentAt = Date.now();
+  };
+
+  const syncFollowLatestOnScroll = () => {
+    const now = Date.now();
+    const fromUser = now - state.lastUserScrollIntentAt < 400;
+    if (!fromUser && now < state.ignoreScrollTrackingUntil) return;
+    setFollowLatest(isNearBottom());
+  };
+
+  window.addEventListener("wheel", noteUserScrollIntent, { passive: true });
+  window.addEventListener("touchmove", noteUserScrollIntent, { passive: true });
+  window.addEventListener("scroll", syncFollowLatestOnScroll, { passive: true });
+
   el.refreshButton.addEventListener("click", refreshAll);
   el.abortButton.addEventListener("click", () => sendRpc({ type: "abort" }));
   el.stopButton?.addEventListener("click", () => sendRpc({ type: "abort" }));
+  el.jumpToLatestButton?.addEventListener("click", () => {
+    setFollowLatest(true);
+    scrollMessagesToBottom({ force: true, behavior: "smooth" });
+  });
   el.actionsButton.addEventListener("click", () => openSheet("actions"));
   el.insertCommandButton.addEventListener("click", () => openSheet("commands"));
   el.cdCommandButton?.addEventListener("click", () => {
