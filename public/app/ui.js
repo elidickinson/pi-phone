@@ -4,12 +4,13 @@ import { el, state } from "./state.js";
 
 let composerLayoutFrame = 0;
 let messageScrollFrame = 0;
+let headerFrame = 0;
 let pendingMessageScroll = { force: false, streaming: false, behavior: "smooth" };
 
 const NEAR_BOTTOM_THRESHOLD = 120;
 const STREAM_FOLLOW_INTERVAL_MS = 320;
 const STREAM_FOLLOW_MIN_HEIGHT_DELTA = 16;
-const PROGRAMMATIC_SCROLL_GUARD_MS = 700;
+const PROGRAMMATIC_SCROLL_GUARD_MS = 400;
 
 export function storeToken(token) {
   if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -305,6 +306,14 @@ function updateComposerState() {
 }
 
 export function renderHeader() {
+  if (headerFrame) return;
+  headerFrame = requestAnimationFrame(() => {
+    headerFrame = 0;
+    flushHeader();
+  });
+}
+
+function flushHeader() {
   const connected = state.socket?.readyState === WebSocket.OPEN;
   el.connectionPill.textContent = connected ? "Connected" : "Offline";
   el.connectionPill.classList.toggle("offline", !connected);

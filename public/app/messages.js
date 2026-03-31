@@ -16,6 +16,11 @@ import { scrollMessagesToBottom, showToast, updateJumpToLatestButton } from "./u
 
 const INLINE_USER_CUSTOM_TYPES = new Set(["phone-inline-user-message"]);
 
+let renderFrame = 0;
+let pendingRender = { forceScroll: false, streaming: false };
+let renderedItemIds = [];
+let renderedLiveIds = new Set();
+
 function userContentDisplayText(content) {
   const imageCount = countImages(content);
   if (!Array.isArray(content)) return contentToText(content);
@@ -253,7 +258,7 @@ function toolDetailsForSecondarySection(item) {
   return Object.keys(rest).length ? rest : null;
 }
 
-function renderMessage(item) {
+function renderMessageInner(item) {
   const richTool = item.kind === "tool" ? renderRichToolContent(item) : "";
   const roleLabel = {
     assistant: "Pi",
@@ -282,7 +287,6 @@ function renderMessage(item) {
       : "";
 
   return `
-    <article class="message ${item.kind}">
       <div class="message-header">
         <div class="role-badge">${escapeHtml(roleLabel)}${item.live ? " · live" : ""}</div>
         <div class="meta">${escapeHtml(item.meta || "")}</div>
@@ -292,8 +296,11 @@ function renderMessage(item) {
         ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
         ${extraDetails}
       </div>
-    </article>
   `;
+}
+
+function renderMessage(item) {
+  return `<article class="message ${item.kind}" data-item-id="${escapeAttribute(item.id)}">${renderMessageInner(item)}</article>`;
 }
 
 function enrichToolItems(items) {
@@ -340,6 +347,8 @@ export function clearSnapshotView() {
   state.snapshotWorkerId = null;
   state.messages = [];
   clearTransientState();
+  renderedItemIds = [];
+  renderedLiveIds.clear();
 }
 
 export function handleAssistantEvent(event) {
@@ -371,6 +380,20 @@ export function upsertLiveTool(toolId, value) {
 }
 
 export function renderMessages({ forceScroll = false, streaming = hasLiveItems() } = {}) {
+  pendingRender = {
+    forceScroll: pendingRender.forceScroll || forceScroll,
+    streaming: pendingRender.streaming || streaming,
+  };
+  if (renderFrame) return;
+  renderFrame = requestAnimationFrame(() => {
+    renderFrame = 0;
+    const opts = pendingRender;
+    pendingRender = { forceScroll: false, streaming: false };
+    flushRenderMessages(opts);
+  });
+}
+
+function flushRenderMessages({ forceScroll, streaming }) {
   const items = currentItems();
   if (!items.length) {
     el.messages.innerHTML = `
@@ -381,11 +404,37 @@ export function renderMessages({ forceScroll = false, streaming = hasLiveItems()
         </div>
       </article>
     `;
+    renderedItemIds = [];
+    renderedLiveIds.clear();
     updateJumpToLatestButton();
     return;
   }
 
-  el.messages.innerHTML = items.map(renderMessage).join("");
+  const nextIds = items.map(item => item.id);
+  const canPatch = renderedItemIds.length > 0
+    && nextIds.length >= renderedItemIds.length
+    && renderedItemIds.every((id, i) => id === nextIds[i]);
+
+  if (canPatch) {
+    // Append any new items without rebuilding existing DOM
+    if (nextIds.length > renderedItemIds.length) {
+      el.messages.insertAdjacentHTML("beforeend", items.slice(renderedItemIds.length).map(renderMessage).join(""));
+    }
+    // Patch only items that are live or were live on last render
+    const currentLiveIds = new Set(items.filter(item => item.live).map(item => item.id));
+    const dirtyIds = new Set([...currentLiveIds, ...renderedLiveIds]);
+    for (const item of items) {
+      if (!dirtyIds.has(item.id)) continue;
+      const article = el.messages.querySelector(`[data-item-id="${CSS.escape(item.id)}"]`);
+      if (article) article.innerHTML = renderMessageInner(item);
+    }
+    renderedLiveIds = currentLiveIds;
+  } else {
+    el.messages.innerHTML = items.map(renderMessage).join("");
+    renderedLiveIds = new Set(items.filter(item => item.live).map(item => item.id));
+  }
+
+  renderedItemIds = nextIds;
   updateJumpToLatestButton();
   scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
 }
