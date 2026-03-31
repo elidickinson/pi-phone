@@ -282,7 +282,7 @@ function renderMessageInner(item) {
     ? `<pre>${escapeHtml(item.text || "")}</pre>`
     : item.kind === "user"
       ? renderedUser.html
-      : renderMarkdownLite(item.text || "");
+      : (item.live && !item.text) ? "" : renderMarkdownLite(item.text || "");
   const bodyMain = richTool || (item.thinkingAsBody
     ? `<div class="thinking-body">${bodyText}</div>`
     : bodyText);

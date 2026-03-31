@@ -118,6 +118,8 @@ export class PhoneServerRuntime {
   private lastActivityAt = Date.now();
   private runtimeControlToken = "";
   private activeRuntimeStatePath: string | null = null;
+  private serverWasRunning = false;
+  private tokenWasGenerated = false;
 
   // Client tracking and live state (replaces session pool)
   private clients = new Set<WebSocket>();
@@ -1217,7 +1219,7 @@ export class PhoneServerRuntime {
     const theme = ctx.ui.theme;
     if (this.server) {
       const dot = theme.fg("success", "●");
-      const label = theme.fg("muted", " phone on");
+      const label = theme.fg("default", " phone on");
       ctx.ui.setStatus("pi-phone", `📱 ${dot}${label}`);
     } else {
       ctx.ui.setStatus("pi-phone", "");
@@ -1256,7 +1258,9 @@ export class PhoneServerRuntime {
     );
     const generatedToken = nextConfig.token && nextConfig.token !== this.config.token && !parsed.tokenSpecified;
     this.config = nextConfig;
+    this.tokenWasGenerated = Boolean(generatedToken);
 
+    this.serverWasRunning = Boolean(this.server);
     if (this.server && changed) {
       await this.stopServer();
     }
@@ -1295,10 +1299,14 @@ export class PhoneServerRuntime {
     const tunnelInfo = getCloudflareTunnelInfo();
     const openUrl = tunnelInfo.active && tunnelInfo.url ? tunnelInfo.url : `http://${this.config.host}:${this.config.port}`;
     ctx.ui.notify(this.statusText(), "info");
-    if (generatedToken) {
-      ctx.ui.notify(`Open ${openUrl} — token: ${this.config.token}`, "info");
-    } else if (this.config.token) {
-      ctx.ui.notify(`Open ${openUrl} (use the token from /phone-token)`, "info");
+    if (this.config.token) {
+      // Show token directly if: newly generated, or server was just restarted (user saw it before)
+      const showTokenDirectly = generatedToken || this.serverWasRunning;
+      if (showTokenDirectly) {
+        ctx.ui.notify(`Open ${openUrl} — token: ${this.config.token}`, "info");
+      } else {
+        ctx.ui.notify(`Open ${openUrl} (use the token from /phone-token)`, "info");
+      }
     } else {
       ctx.ui.notify(`Open ${openUrl}`, "info");
     }
@@ -1341,7 +1349,11 @@ export class PhoneServerRuntime {
   handlePhoneToken(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
     if (this.config.token) {
-      ctx.ui.notify(`Pi Phone token: ${this.config.token}`, "info");
+      if (this.tokenWasGenerated) {
+        ctx.ui.notify(`Pi Phone token: ${this.config.token}`, "info");
+      } else {
+        ctx.ui.notify("Pi Phone token is set (value not shown for security).", "info");
+      }
     } else {
       ctx.ui.notify("Pi Phone token is disabled for this server.", "info");
     }
