@@ -374,6 +374,7 @@ pre {
   overflow-x: auto;
   white-space: pre;
   word-break: normal;
+  font-size: 0.82rem;
 }
 
 .message-body > .message-code-block:first-child {
@@ -386,7 +387,6 @@ pre {
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.94rem;
 }
 
 .message-body ul {
@@ -588,6 +588,7 @@ pre {
   border-radius: 14px;
   border: 1px solid rgba(127, 212, 255, 0.12);
   background: rgba(7, 12, 16, 0.96);
+  font-size: 0.82rem;
 }
 
 .tool-diff-line,
@@ -783,6 +784,11 @@ pre {
 
 .detail-markdown > .message-code-block:first-child {
   margin-top: 0;
+}
+
+.thinking-body {
+  font-style: italic;
+  color: var(--muted);
 }
 
 .composer-wrap {

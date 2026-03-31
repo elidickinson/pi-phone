@@ -2,10 +2,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { PhoneServerRuntime } from "./phone-server-runtime";
 
 export default function registerPhoneExtension(pi: ExtensionAPI) {
-  if (process.env.PI_PHONE_CHILD === "1") {
-    return;
-  }
-
   const runtime = new PhoneServerRuntime(pi);
 
   pi.registerCommand("phone-start", {
@@ -36,10 +32,12 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
     },
   });
 
+  // CLI input tracking
   pi.on("input", async (event, ctx) => {
     return runtime.handleInput(event, ctx);
   });
 
+  // Session lifecycle → sync status UI + broadcast snapshot to phone
   pi.on("session_start", async (_event, ctx) => {
     await runtime.handleSessionStart(ctx);
   });
@@ -62,5 +60,34 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     await runtime.handleSessionShutdown(ctx);
+  });
+
+  // Event bridge: forward CLI session events to phone UI via WebSocket
+  pi.on("agent_start", (event, ctx) => {
+    runtime.bridgeAgentStart(ctx);
+  });
+
+  pi.on("agent_end", (event, ctx) => {
+    runtime.bridgeAgentEnd(ctx);
+  });
+
+  pi.on("message_update", (event, ctx) => {
+    runtime.bridgeMessageUpdate(event, ctx);
+  });
+
+  pi.on("message_end", (event, ctx) => {
+    runtime.bridgeMessageEnd(event, ctx);
+  });
+
+  pi.on("tool_execution_start", (event, ctx) => {
+    runtime.bridgeToolExecutionStart(event, ctx);
+  });
+
+  pi.on("tool_execution_update", (event, ctx) => {
+    runtime.bridgeToolExecutionUpdate(event, ctx);
+  });
+
+  pi.on("tool_execution_end", (event, ctx) => {
+    runtime.bridgeToolExecutionEnd(event, ctx);
   });
 }

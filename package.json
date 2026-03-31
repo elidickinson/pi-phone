@@ -24,7 +24,6 @@
   },
   "files": [
     "index.ts",
-    "phone-session-pool.ts",
     "src",
     "public",
     "README.md"

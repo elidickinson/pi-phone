@@ -4,16 +4,19 @@ import type {
   ExtensionContext,
   InputEvent,
   InputEventResult,
+  MessageEndEvent,
+  MessageUpdateEvent,
+  ToolExecutionEndEvent,
+  ToolExecutionStartEvent,
+  ToolExecutionUpdateEvent,
 } from "@mariozechner/pi-coding-agent";
+import type { SessionEntry } from "@mariozechner/pi-coding-agent";
 import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import { PhoneSessionPool } from "../session-pool/session-pool";
-import { PhoneSessionWorker } from "../session-pool/session-worker";
-import type { SessionController } from "../session-pool/types";
 import { parsePhoneStartArgs } from "./phone-args";
 import { listPhonePathSuggestions, resolvePhoneCdTargetPath } from "./phone-paths";
 import { getQuotaForModel } from "./phone-quota";
@@ -37,12 +40,6 @@ import type { PhoneConfig } from "./types";
 
 type AnyCtx = ExtensionContext | ExtensionCommandContext;
 
-type SlashCommandMatch = {
-  text: string;
-  name: string;
-  source: string;
-};
-
 const DEFAULT_IDLE_TIMEOUT_MS = 2 * 60 * 60_000;
 
 function isAddressInUseError(error: unknown) {
@@ -60,10 +57,45 @@ function parseSlashCommandText(text: unknown) {
   const spaceIndex = body.indexOf(" ");
   const name = spaceIndex === -1 ? body : body.slice(0, spaceIndex);
 
-  return {
-    text: `/${body}`,
-    name,
-  };
+  return { text: `/${body}`, name };
+}
+
+function entryTimestamp(entry: SessionEntry): number {
+  return typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : 0;
+}
+
+/** Convert session entries to the message format the phone UI expects. */
+function entriesToMessages(entries: SessionEntry[]): any[] {
+  const messages: any[] = [];
+  for (const entry of entries) {
+    if (entry.type === "message") {
+      messages.push(entry.message);
+    } else if (entry.type === "compaction") {
+      messages.push({
+        role: "compactionSummary",
+        summary: entry.summary,
+        tokensBefore: entry.tokensBefore,
+        timestamp: entryTimestamp(entry),
+      });
+    } else if (entry.type === "branch_summary") {
+      messages.push({
+        role: "branchSummary",
+        summary: entry.summary,
+        fromId: entry.fromId,
+        timestamp: entryTimestamp(entry),
+      });
+    } else if (entry.type === "custom_message") {
+      messages.push({
+        role: "custom",
+        customType: entry.customType,
+        content: entry.content,
+        display: entry.display,
+        details: entry.details,
+        timestamp: entryTimestamp(entry),
+      });
+    }
+  }
+  return messages;
 }
 
 export class PhoneServerRuntime {
@@ -80,13 +112,19 @@ export class PhoneServerRuntime {
   };
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
-  private sessionPool: PhoneSessionPool | null = null;
   private latestCommandCtx: ExtensionCommandContext | null = null;
   private inputSource: "cli" | "phone" = "phone";
   private idleStopTimer: NodeJS.Timeout | null = null;
   private lastActivityAt = Date.now();
   private runtimeControlToken = "";
   private activeRuntimeStatePath: string | null = null;
+
+  // Client tracking and live state (replaces session pool)
+  private clients = new Set<WebSocket>();
+  private streaming = false;
+  private liveAssistantMessage: any = null;
+  private liveTools = new Map<string, any>();
+  private previousCwd = "";
 
   constructor(private readonly pi: ExtensionAPI) {}
 
@@ -101,25 +139,24 @@ export class PhoneServerRuntime {
     return this.latestCtx?.cwd || this.config.cwd || process.cwd();
   }
 
-  private buildStatus() {
-    if (this.sessionPool) {
-      return this.sessionPool.buildOverallStatus();
-    }
+  // ---------------------------------------------------------------------------
+  // State building
+  // ---------------------------------------------------------------------------
 
-    const theme = buildThemePayload(this.latestCtx?.ui.theme);
+  private buildState() {
+    const ctx = this.latestCtx;
+    const theme = buildThemePayload(ctx?.ui.theme);
+    const model = ctx?.model;
+    const contextUsage = ctx?.getContextUsage?.();
 
     return {
       cwd: this.config.cwd,
       hasToken: Boolean(this.config.token),
       isRunning: Boolean(this.server),
-      childRunning: false,
-      isStreaming: false,
+      isStreaming: this.streaming,
       lastError: this.latestError,
       pid: process.pid,
-      childPid: null,
-      piCommand: "pi --mode rpc",
-      connectedClients: 0,
-      sessionCount: 0,
+      connectedClients: this.clients.size,
       host: this.config.host,
       port: this.config.port,
       idleTimeoutMs: this.config.idleTimeoutMs,
@@ -127,13 +164,149 @@ export class PhoneServerRuntime {
       singleClientMode: true,
       inputSource: this.inputSource,
       ...(theme ? { theme } : {}),
+      // Snapshot-level state the phone UI reads from get_state / snapshot.state
+      model: model ? {
+        id: (model as any).id || (model as any).modelId || "",
+        name: (model as any).name || (model as any).id || "",
+        provider: (model as any).provider || "",
+        contextWindow: (model as any).contextWindow,
+      } : undefined,
+      sessionFile: ctx?.sessionManager?.getSessionFile?.() || null,
+      sessionId: ctx?.sessionManager?.getSessionId?.() || null,
+      sessionName: ctx?.sessionManager?.getSessionName?.() || null,
+      thinkingLevel: this.pi.getThinkingLevel?.() || null,
+      contextUsage: contextUsage || null,
     };
   }
 
-  private generateToken() {
-    const raw = randomBytes(12).toString("base64url");
-    return `${raw.slice(0, 6)}-${raw.slice(6, 12)}-${raw.slice(12, 16)}`;
+  private buildSnapshot() {
+    const state = this.buildState();
+    const entries = this.latestCtx?.sessionManager?.getBranch?.() || [];
+    const messages = entriesToMessages(entries);
+    const commands = this.pi.getCommands?.() || [];
+
+    return {
+      channel: "snapshot" as const,
+      state,
+      sessionWorkerId: state.sessionId,
+      messages,
+      commands,
+      liveAssistantMessage: this.liveAssistantMessage,
+      liveTools: [...this.liveTools.values()],
+    };
   }
+
+  // ---------------------------------------------------------------------------
+  // Event bridge: forward CLI session events to phone UI
+  // ---------------------------------------------------------------------------
+
+  bridgeAgentStart(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    this.streaming = true;
+    this.broadcast({ channel: "rpc", payload: { type: "agent_start" } });
+    this.broadcastStatus();
+  }
+
+  bridgeAgentEnd(ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    this.streaming = false;
+    this.liveAssistantMessage = null;
+    this.liveTools.clear();
+    this.broadcast({ channel: "rpc", payload: { type: "agent_end" } });
+    this.broadcastStatus();
+  }
+
+  bridgeMessageUpdate(event: MessageUpdateEvent, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    this.liveAssistantMessage = event.message;
+    this.broadcast({
+      channel: "rpc",
+      payload: { type: "message_update", assistantMessageEvent: event.assistantMessageEvent },
+    });
+  }
+
+  bridgeMessageEnd(event: MessageEndEvent, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    this.liveAssistantMessage = null;
+    this.broadcast({
+      channel: "rpc",
+      payload: { type: "message_end", message: event.message },
+    });
+  }
+
+  bridgeToolExecutionStart(event: ToolExecutionStartEvent, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    this.liveTools.set(event.toolCallId, {
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      args: event.args,
+    });
+    this.broadcast({
+      channel: "rpc",
+      payload: {
+        type: "tool_execution_start",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: event.args,
+      },
+    });
+  }
+
+  bridgeToolExecutionUpdate(event: ToolExecutionUpdateEvent, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    const existing = this.liveTools.get(event.toolCallId);
+    this.liveTools.set(event.toolCallId, {
+      ...existing,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      args: event.args,
+      partialResult: event.partialResult,
+    });
+    this.broadcast({
+      channel: "rpc",
+      payload: {
+        type: "tool_execution_update",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: event.args,
+        partialResult: event.partialResult,
+      },
+    });
+  }
+
+  bridgeToolExecutionEnd(event: ToolExecutionEndEvent, ctx: ExtensionContext) {
+    this.captureCtx(ctx);
+    if (!this.server) return;
+    const existing = this.liveTools.get(event.toolCallId);
+    this.liveTools.set(event.toolCallId, {
+      ...existing,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      result: event.result,
+      isError: event.isError,
+    });
+    this.broadcast({
+      channel: "rpc",
+      payload: {
+        type: "tool_execution_end",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: existing?.args,
+        result: event.result,
+        isError: event.isError,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Broadcasting
+  // ---------------------------------------------------------------------------
 
   private send(ws: WebSocket, payload: unknown) {
     if (ws.readyState === ws.OPEN) {
@@ -142,14 +315,51 @@ export class PhoneServerRuntime {
   }
 
   private broadcast(payload: unknown) {
-    for (const client of this.sessionPool?.getClients() || []) {
+    for (const client of this.clients) {
       this.send(client, payload);
     }
   }
 
   broadcastStatus() {
-    this.sessionPool?.broadcastStatus();
+    if (!this.server || this.clients.size === 0) return;
+    this.broadcast({ channel: "server", event: "status", data: this.buildState() });
   }
+
+  broadcastSnapshot() {
+    if (!this.server || this.clients.size === 0) return;
+    this.broadcast(this.buildSnapshot());
+  }
+
+  private broadcastCatalog() {
+    if (!this.server || this.clients.size === 0) return;
+    const sm = this.latestCtx?.sessionManager;
+    const session = {
+      id: sm?.getSessionId?.() || "current",
+      label: sm?.getSessionName?.() || "Current session",
+      sessionFile: sm?.getSessionFile?.() || null,
+    };
+    this.broadcast({
+      channel: "sessions",
+      event: "catalog",
+      data: {
+        activeSessionId: session.id,
+        sessions: [session],
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Token & helpers
+  // ---------------------------------------------------------------------------
+
+  private generateToken() {
+    const raw = randomBytes(12).toString("base64url");
+    return `${raw.slice(0, 6)}-${raw.slice(6, 12)}-${raw.slice(12, 16)}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Idle timeout
+  // ---------------------------------------------------------------------------
 
   private clearIdleStopTimer() {
     if (this.idleStopTimer) {
@@ -181,11 +391,9 @@ export class PhoneServerRuntime {
         event: "idle-timeout",
         data: { message: `Pi Phone stopped after ${Math.round(this.config.idleTimeoutMs / 60000) || 1} minute(s) of inactivity.` },
       };
-
-      if (this.sessionPool) {
-        await this.sessionPool.closeAllClients({ payload: idlePayload, code: 4010, reason: "idle-timeout" });
-      } else {
-        this.broadcast(idlePayload);
+      this.broadcast(idlePayload);
+      for (const client of this.clients) {
+        client.close(4010, "idle-timeout");
       }
 
       await this.stopServer();
@@ -193,83 +401,77 @@ export class PhoneServerRuntime {
     }, this.config.idleTimeoutMs);
   }
 
-  private async getActiveWorkerForClient(ws: WebSocket) {
-    if (!this.sessionPool) {
-      throw new Error("Pi Phone session pool is not running.");
-    }
-    return this.sessionPool.getActiveWorker(ws);
+  // ---------------------------------------------------------------------------
+  // Input source tracking
+  // ---------------------------------------------------------------------------
+
+  private setInputSource(source: "cli" | "phone") {
+    if (this.inputSource === source) return;
+    this.inputSource = source;
+    this.broadcastStatus();
   }
 
-  private async getCurrentSessionFileForWorker(worker: SessionController) {
-    const stateResponse = await worker.request({ type: "get_state" });
-    return stateResponse.data?.sessionFile as string | undefined;
-  }
-
-  private async getTreeStateForWorker(worker: SessionController) {
-    const sessionFile = await this.getCurrentSessionFileForWorker(worker);
-    if (!sessionFile) {
-      throw new Error("No session file available for tree view.");
-    }
-    return getTreeStateFromSessionFile(sessionFile);
-  }
-
-  private async createBranchSessionFromEntryForWorker(worker: SessionController, entryId: string) {
-    const sessionFile = await this.getCurrentSessionFileForWorker(worker);
-    if (!sessionFile) {
-      throw new Error("No active session file.");
-    }
-    return createBranchSessionFromEntry(sessionFile, entryId);
-  }
-
-  private async resolveRemoteSlashCommandForWorker(worker: SessionController, text: unknown): Promise<SlashCommandMatch | null> {
-    const parsed = parseSlashCommandText(text);
-    if (!parsed) return null;
-
-    const commandsResponse = await worker.request({ type: "get_commands" });
-    if (!commandsResponse?.success) {
-      throw new Error(commandsResponse?.error || "Failed to read available slash commands.");
+  handleInput(event: InputEvent, ctx: ExtensionContext): InputEventResult {
+    this.captureCtx(ctx);
+    if (!this.server || event.source !== "interactive") {
+      return { action: "continue" };
     }
 
-    const match = (commandsResponse.data?.commands || []).find((command: any) => command?.name === parsed.name);
-    if (!match) return null;
-
-    return {
-      ...parsed,
-      source: typeof match.source === "string" ? match.source : "extension",
-    };
+    // CLI user typed — track input source, let CLI session handle it normally.
+    // The event bridge will forward the resulting AI events to the phone.
+    this.setInputSource("cli");
+    this.markActivity();
+    return { action: "continue" };
   }
 
-  private async dispatchRemoteSlashCommandForWorker(
-    worker: SessionController,
+  // ---------------------------------------------------------------------------
+  // Slash command dispatch (simplified — no worker, uses pi.sendUserMessage)
+  // ---------------------------------------------------------------------------
+
+  private async dispatchSlashCommand(
     ws: WebSocket,
-    input: {
-      text: string;
+    text: string,
+    options: {
       images?: unknown[];
       streamingBehavior?: "steer" | "followUp";
-    },
-    options: {
       responseCommand?: string;
       responseData?: Record<string, unknown>;
-      onSuccess?: (payload?: unknown) => void;
-      onError?: (payload?: unknown) => void;
+      onSuccess?: () => void;
     } = {},
   ) {
-    const slashCommand = await this.resolveRemoteSlashCommandForWorker(worker, input.text);
-    if (!slashCommand) {
+    const parsed = parseSlashCommandText(text);
+    if (!parsed) {
       this.send(ws, {
         channel: "rpc",
         payload: {
           type: "response",
           command: options.responseCommand || "slash_command",
           success: false,
-          error: `Unknown slash command: ${typeof input.text === "string" ? input.text : ""}`.trim() || "Unknown slash command.",
+          error: `Unknown slash command: ${text || ""}`.trim() || "Unknown slash command.",
         },
       });
       return false;
     }
 
-    const images = Array.isArray(input.images) ? input.images : [];
-    if (slashCommand.source === "extension" && images.length > 0) {
+    // Validate command exists
+    const commands = this.pi.getCommands?.() || [];
+    const match = commands.find((cmd: any) => cmd?.name === parsed.name);
+    if (!match) {
+      this.send(ws, {
+        channel: "rpc",
+        payload: {
+          type: "response",
+          command: options.responseCommand || "slash_command",
+          success: false,
+          error: `Unknown slash command: ${text}`,
+        },
+      });
+      return false;
+    }
+
+    const source = typeof match.source === "string" ? match.source : "extension";
+    const images = Array.isArray(options.images) ? options.images : [];
+    if (source === "extension" && images.length > 0) {
       this.send(ws, {
         channel: "rpc",
         payload: {
@@ -282,76 +484,41 @@ export class PhoneServerRuntime {
       return false;
     }
 
-    const childCommand: Record<string, unknown> = {
-      type: "prompt",
-      message: slashCommand.text,
-    };
+    // Build content and send as user message
+    const content: any[] = [{ type: "text", text: parsed.text }];
+    for (const img of images) {
+      content.push(img);
+    }
+
+    const deliverAs = options.streamingBehavior === "steer" ? "steer" as const
+      : options.streamingBehavior === "followUp" ? "followUp" as const
+      : undefined;
 
     if (images.length > 0) {
-      childCommand.images = images;
+      this.pi.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+    } else {
+      this.pi.sendUserMessage(parsed.text, deliverAs ? { deliverAs } : undefined);
     }
 
-    if (slashCommand.source !== "extension" && (input.streamingBehavior === "steer" || input.streamingBehavior === "followUp")) {
-      childCommand.streamingBehavior = input.streamingBehavior;
-    }
+    options.onSuccess?.();
 
-    await worker.sendClientCommand(childCommand, {
-      ws,
-      responseCommand: options.responseCommand || "slash_command",
-      responseData: {
-        name: slashCommand.name,
-        source: slashCommand.source,
-        ...(options.responseData || {}),
+    // Send immediate success response
+    this.send(ws, {
+      channel: "rpc",
+      payload: {
+        type: "response",
+        command: options.responseCommand || "slash_command",
+        success: true,
+        data: { source, name: parsed.name, ...(options.responseData || {}) },
       },
-      onSuccess: options.onSuccess,
-      onError: options.onError,
     });
 
     return true;
   }
 
-  private setInputSource(source: "cli" | "phone") {
-    if (this.inputSource === source) return;
-    this.inputSource = source;
-    this.broadcastStatus();
-  }
-
-  handleInput(event: InputEvent, ctx: ExtensionContext): InputEventResult | Promise<InputEventResult> {
-    this.captureCtx(ctx);
-    if (!this.server || !this.sessionPool || event.source !== "interactive") {
-      return { action: "continue" };
-    }
-
-    // Last-write-wins: CLI takes focus, forward input to active phone session
-    const pool = this.sessionPool;
-    const selectedId = pool.getSelectedSessionId();
-    const worker = selectedId ? pool.getSession(selectedId) : null;
-    if (!worker) {
-      return { action: "continue" };
-    }
-
-    this.setInputSource("cli");
-    this.markActivity();
-
-    // Fire-and-forget: abort if busy, then send prompt
-    void (async () => {
-      try {
-        if (worker.getStatus().isStreaming) {
-          await worker.request({ type: "abort" }).catch(() => {});
-        }
-        const command: Record<string, unknown> = { type: "prompt", message: event.text };
-        if (event.images?.length) {
-          command.images = event.images;
-        }
-        await worker.sendClientCommand(command);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Failed to forward to phone session: ${message}`, "warning");
-      }
-    })();
-
-    return { action: "continue" };
-  }
+  // ---------------------------------------------------------------------------
+  // HTTP server
+  // ---------------------------------------------------------------------------
 
   private async handleHttp(req: IncomingMessage, res: ServerResponse) {
     this.markActivity();
@@ -389,7 +556,7 @@ export class PhoneServerRuntime {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
       });
-      res.end(JSON.stringify(this.buildStatus()));
+      res.end(JSON.stringify(this.buildState()));
       return;
     }
 
@@ -454,50 +621,12 @@ export class PhoneServerRuntime {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Server lifecycle
+  // ---------------------------------------------------------------------------
+
   async startServer() {
     if (this.server) return;
-
-    this.sessionPool = new PhoneSessionPool({
-      cwd: this.config.cwd,
-      send: (ws, payload) => this.send(ws, payload),
-      onActivity: () => this.markActivity(),
-      buildStatusMeta: () => {
-        const theme = buildThemePayload(this.latestCtx?.ui.theme);
-        return {
-          cwd: this.config.cwd,
-          hasToken: Boolean(this.config.token),
-          host: this.config.host,
-          port: this.config.port,
-          idleTimeoutMs: this.config.idleTimeoutMs,
-          lastActivityAt: this.lastActivityAt,
-          singleClientMode: true,
-          inputSource: this.inputSource,
-          pid: process.pid,
-          piCommand: "pi --mode rpc",
-          serverRunning: Boolean(this.server),
-          ...(theme ? { theme } : {}),
-        };
-      },
-      createSession: (sessionFile) => {
-        let worker: PhoneSessionWorker;
-        worker = new PhoneSessionWorker(
-          {
-            cwd: this.config.cwd,
-            send: (ws, payload) => this.send(ws, payload),
-            onActivity: () => this.markActivity(),
-            onStateChange: () => {
-              this.sessionPool?.notifySessionStateChanged(worker);
-            },
-            onEnvelope: (_currentWorker, envelope) => {
-              this.sessionPool?.forwardSessionEnvelope(worker, envelope);
-            },
-            shouldAutoRestart: (currentWorker) => Boolean(this.sessionPool && this.sessionPool.clientCount > 0 && this.sessionPool.getSession(currentWorker.id)),
-          },
-          sessionFile,
-        );
-        return worker;
-      },
-    });
 
     this.server = createServer((req, res) => {
       this.handleHttp(req, res).catch((error) => {
@@ -511,30 +640,38 @@ export class PhoneServerRuntime {
     this.wss = new WebSocketServer({ noServer: true });
 
     this.wss.on("connection", (ws: WebSocket) => {
-      if (this.sessionPool && this.sessionPool.clientCount > 0) {
-        this.sessionPool.closeAllClients({
-          payload: {
-            channel: "server",
-            event: "single-client-replaced",
-            data: { message: "This Pi Phone instance was opened from another device or tab." },
-          },
-          code: 4009,
-          reason: "replaced-by-new-client",
-        }).catch(() => {});
+      // Single-client mode: close existing clients
+      if (this.clients.size > 0) {
+        const replacePayload = {
+          channel: "server",
+          event: "single-client-replaced",
+          data: { message: "This Pi Phone instance was opened from another device or tab." },
+        };
+        for (const existing of this.clients) {
+          this.send(existing, replacePayload);
+          existing.close(4009, "replaced-by-new-client");
+        }
+        this.clients.clear();
       }
 
+      this.clients.add(ws);
       this.markActivity();
-      this.sessionPool?.addClient(ws).catch((error) => {
+
+      // Send initial snapshot
+      try {
+        this.send(ws, this.buildSnapshot());
+      } catch (error) {
         this.send(ws, {
           channel: "server",
           event: "snapshot-error",
           data: { message: error instanceof Error ? error.message : String(error) },
         });
-      });
+      }
       this.broadcastStatus();
+      this.broadcastCatalog();
 
       ws.on("close", () => {
-        this.sessionPool?.removeClient(ws);
+        this.clients.delete(ws);
         this.markActivity();
         this.broadcastStatus();
       });
@@ -579,7 +716,6 @@ export class PhoneServerRuntime {
       this.latestError = "";
       this.runtimeControlToken = this.generateToken();
       this.markActivity();
-      await this.sessionPool.ensureDefaultWorker();
       this.activeRuntimeStatePath = await writePersistedRuntimeState(this.config.host, this.config.port, this.runtimeControlToken);
       this.broadcastStatus();
       this.syncStatusUi();
@@ -599,10 +735,14 @@ export class PhoneServerRuntime {
     const runtimeStatePath = this.activeRuntimeStatePath;
     this.runtimeControlToken = "";
 
-    if (this.sessionPool) {
-      await this.sessionPool.dispose();
-      this.sessionPool = null;
+    // Close all clients
+    for (const client of this.clients) {
+      client.close(1000, "server-stopped");
     }
+    this.clients.clear();
+    this.streaming = false;
+    this.liveAssistantMessage = null;
+    this.liveTools.clear();
     this.inputSource = "phone";
 
     if (this.wss) {
@@ -632,6 +772,10 @@ export class PhoneServerRuntime {
     this.syncStatusUi();
   }
 
+  // ---------------------------------------------------------------------------
+  // Client message handling
+  // ---------------------------------------------------------------------------
+
   private async handleClientMessage(ws: WebSocket, raw: string) {
     let message: any;
     try {
@@ -641,46 +785,47 @@ export class PhoneServerRuntime {
       return;
     }
 
-    if (!this.sessionPool) {
-      throw new Error("Pi Phone session pool is not running.");
-    }
-
     if (message.kind === "refresh") {
-      await this.sessionPool.refreshActiveSnapshot(ws);
+      this.send(ws, this.buildSnapshot());
       return;
     }
 
     // Phone is interacting — take focus
     this.setInputSource("phone");
 
+    // Session operations (simplified — single session)
     if (message.kind === "session-select") {
-      const sessionId = String(message.sessionId || "");
-      await this.sessionPool.selectSession(ws, sessionId);
+      // Single session, just refresh
+      this.send(ws, this.buildSnapshot());
       return;
     }
 
     if (message.kind === "session-spawn") {
-      const worker = await this.sessionPool.spawnSession(ws);
-      this.send(ws, { channel: "server", event: "session-spawned", data: { message: "Opened new session." } });
+      if (this.latestCommandCtx) {
+        await this.latestCommandCtx.newSession();
+        this.broadcastSnapshot();
+        this.broadcastCatalog();
+        this.send(ws, { channel: "server", event: "session-spawned", data: { message: "Opened new session." } });
+      }
       return;
     }
 
     if (message.kind === "local-command") {
-      const worker = await this.getActiveWorkerForClient(ws);
-
       if (message.command === "reload") {
         try {
-          await worker.reload();
+          if (this.latestCommandCtx) {
+            await this.latestCommandCtx.reload();
+          }
           this.send(ws, {
             channel: "rpc",
             payload: {
               type: "response",
               command: "reload",
               success: true,
-              data: { sessionFile: worker.currentSessionFile },
+              data: { sessionFile: this.latestCtx?.sessionManager?.getSessionFile?.() || null },
             },
           });
-          await this.sessionPool.refreshActiveSnapshot(ws);
+          this.send(ws, this.buildSnapshot());
         } catch (error) {
           this.send(ws, {
             channel: "rpc",
@@ -699,7 +844,8 @@ export class PhoneServerRuntime {
         try {
           const mode = message.command.mode === "cd" ? "cd" : "mention";
           const query = typeof message.command.query === "string" ? message.command.query : "";
-          const suggestions = listPhonePathSuggestions(mode, query, worker.cwd, worker.previousCwd);
+          const cwd = this.activeCwd();
+          const suggestions = listPhonePathSuggestions(mode, query, cwd, this.previousCwd);
 
           this.send(ws, {
             channel: "rpc",
@@ -710,7 +856,7 @@ export class PhoneServerRuntime {
               data: {
                 mode,
                 query,
-                cwd: worker.cwd,
+                cwd,
                 requestId: Number(message.command.requestId) || 0,
                 suggestions,
               },
@@ -733,7 +879,8 @@ export class PhoneServerRuntime {
       if (message.command && typeof message.command === "object" && message.command.type === "cd") {
         try {
           const args = typeof message.command.args === "string" ? message.command.args : "";
-          const nextCwd = resolvePhoneCdTargetPath(args, worker.cwd, worker.previousCwd);
+          const cwd = this.activeCwd();
+          const nextCwd = resolvePhoneCdTargetPath(args, cwd, this.previousCwd);
 
           if (!existsSync(nextCwd)) {
             throw new Error(`Directory does not exist: ${nextCwd}`);
@@ -742,24 +889,15 @@ export class PhoneServerRuntime {
             throw new Error(`Not a directory: ${nextCwd}`);
           }
 
-          const previousCwd = worker.cwd;
           const slashText = args.trim() ? `/cd ${args}` : "/cd";
-          const dispatched = await this.dispatchRemoteSlashCommandForWorker(
-            worker,
-            ws,
-            { text: slashText },
-            {
-              responseCommand: "cd",
-              responseData: { cwd: nextCwd, previousCwd },
-              onSuccess: () => {
-                worker.setTrackedCwd?.(nextCwd, previousCwd);
-                this.sessionPool?.setCwd(nextCwd);
-                this.config.cwd = nextCwd;
-              },
+          await this.dispatchSlashCommand(ws, slashText, {
+            responseCommand: "cd",
+            responseData: { cwd: nextCwd, previousCwd: cwd },
+            onSuccess: () => {
+              this.previousCwd = cwd;
+              this.config.cwd = nextCwd;
             },
-          );
-
-          if (!dispatched) return;
+          });
         } catch (error) {
           this.send(ws, {
             channel: "rpc",
@@ -776,8 +914,7 @@ export class PhoneServerRuntime {
 
       if (message.command && typeof message.command === "object" && message.command.type === "slash-command") {
         try {
-          await this.dispatchRemoteSlashCommandForWorker(worker, ws, {
-            text: String(message.command.text || ""),
+          await this.dispatchSlashCommand(ws, String(message.command.text || ""), {
             images: Array.isArray(message.command.images) ? message.command.images : [],
             streamingBehavior: message.command.streamingBehavior === "steer"
               ? "steer"
@@ -810,26 +947,206 @@ export class PhoneServerRuntime {
 
     const command = { ...message.command };
 
+    // --- RPC commands mapped to ctx.pi.* API ---
+
+    if (command.type === "get_state") {
+      this.send(ws, {
+        channel: "rpc",
+        payload: { type: "response", command: "get_state", success: true, data: this.buildState() },
+      });
+      return;
+    }
+
+    if (command.type === "get_messages") {
+      const entries = this.latestCtx?.sessionManager?.getBranch?.() || [];
+      this.send(ws, {
+        channel: "rpc",
+        payload: { type: "response", command: "get_messages", success: true, data: { messages: entriesToMessages(entries) } },
+      });
+      return;
+    }
+
+    if (command.type === "get_commands") {
+      const commands = this.pi.getCommands?.() || [];
+      this.send(ws, {
+        channel: "rpc",
+        payload: { type: "response", command: "get_commands", success: true, data: { commands } },
+      });
+      return;
+    }
+
+    if (command.type === "get_available_models") {
+      // Not directly available via extension API — return empty
+      this.send(ws, {
+        channel: "rpc",
+        payload: { type: "response", command: "get_available_models", success: true, data: { models: [] } },
+      });
+      return;
+    }
+
+    if (command.type === "get_session_stats") {
+      // Build basic stats from available data
+      this.send(ws, {
+        channel: "rpc",
+        payload: { type: "response", command: "get_session_stats", success: true, data: {} },
+      });
+      return;
+    }
+
+    if (command.type === "prompt") {
+      const text = typeof command.message === "string" ? command.message : "";
+      const images = Array.isArray(command.images) ? command.images : [];
+
+      if (images.length > 0) {
+        const content: any[] = [{ type: "text", text }];
+        for (const img of images) {
+          content.push(img);
+        }
+        this.pi.sendUserMessage(content);
+      } else {
+        this.pi.sendUserMessage(text);
+      }
+      return;
+    }
+
+    if (command.type === "abort") {
+      this.latestCtx?.abort?.();
+      return;
+    }
+
+    if (command.type === "set_model") {
+      try {
+        const model = { provider: command.provider, id: command.modelId, ...(command.model || {}) };
+        const success = await this.pi.setModel(model as any);
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "set_model", success, data: {} },
+        });
+        if (success) this.broadcastStatus();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "set_model", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
+    if (command.type === "set_thinking_level") {
+      try {
+        this.pi.setThinkingLevel(command.level);
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "set_thinking_level", success: true, data: {} },
+        });
+        this.broadcastStatus();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "set_thinking_level", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
+    if (command.type === "compact") {
+      try {
+        this.latestCtx?.compact?.();
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "compact", success: true, data: {} },
+        });
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "compact", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
+    if (command.type === "new_session") {
+      try {
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        await this.latestCommandCtx.newSession();
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "new_session", success: true, data: {} },
+        });
+        this.broadcastSnapshot();
+        this.broadcastCatalog();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "new_session", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
+    if (command.type === "switch_session") {
+      try {
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        await this.latestCommandCtx.switchSession(String(command.sessionPath || ""));
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "switch_session", success: true, data: {} },
+        });
+        this.broadcastSnapshot();
+        this.broadcastCatalog();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "switch_session", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
+    if (command.type === "fork") {
+      try {
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        await this.latestCommandCtx.fork(String(command.entryId || ""));
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "fork", success: true, data: {} },
+        });
+        this.broadcastSnapshot();
+        this.broadcastCatalog();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "fork", success: false, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+      return;
+    }
+
     if (command.type === "phone_list_sessions") {
-      const worker = await this.getActiveWorkerForClient(ws);
-      const sessions = await listSessionsForCwd(worker.cwd || this.config.cwd);
+      const sessions = await listSessionsForCwd(this.activeCwd());
       this.send(ws, {
         channel: "rpc",
         payload: {
           type: "response",
           command: "phone_list_sessions",
           success: true,
-          data: { sessions, cwd: worker.cwd || this.config.cwd },
+          data: { sessions, cwd: this.activeCwd() },
           ...(command.id ? { id: command.id } : {}),
         },
       });
       return;
     }
 
-    const worker = await this.getActiveWorkerForClient(ws);
-
     if (command.type === "phone_get_tree") {
-      const tree = await this.getTreeStateForWorker(worker);
+      const sessionFile = this.latestCtx?.sessionManager?.getSessionFile?.();
+      if (!sessionFile) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: { type: "response", command: "phone_get_tree", success: false, error: "No session file available." },
+        });
+        return;
+      }
+      const tree = getTreeStateFromSessionFile(sessionFile);
       this.send(ws, {
         channel: "rpc",
         payload: {
@@ -844,25 +1161,57 @@ export class PhoneServerRuntime {
     }
 
     if (command.type === "phone_open_branch_path") {
-      const nextPath = await this.createBranchSessionFromEntryForWorker(worker, String(command.entryId || ""));
-      const switchResponse = await worker.request({ type: "switch_session", sessionPath: nextPath });
-      this.send(ws, {
-        channel: "rpc",
-        payload: {
-          type: "response",
-          command: "phone_open_branch_path",
-          success: true,
-          data: { path: nextPath, switchResult: switchResponse.data },
-          ...(command.id ? { id: command.id } : {}),
-        },
-      });
-      await this.sessionPool.refreshActiveSnapshot(ws);
-      this.broadcastStatus();
+      try {
+        const sessionFile = this.latestCtx?.sessionManager?.getSessionFile?.();
+        if (!sessionFile) throw new Error("No active session file.");
+        const nextPath = createBranchSessionFromEntry(sessionFile, String(command.entryId || ""));
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        await this.latestCommandCtx.switchSession(nextPath);
+        this.send(ws, {
+          channel: "rpc",
+          payload: {
+            type: "response",
+            command: "phone_open_branch_path",
+            success: true,
+            data: { path: nextPath },
+            ...(command.id ? { id: command.id } : {}),
+          },
+        });
+        this.broadcastSnapshot();
+        this.broadcastCatalog();
+      } catch (error) {
+        this.send(ws, {
+          channel: "rpc",
+          payload: {
+            type: "response",
+            command: "phone_open_branch_path",
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
       return;
     }
 
-    await worker.sendClientCommand(command, { ws });
+    if (command.type === "extension_ui_response") {
+      // UI responses are handled by the CLI session directly — no action needed here
+      return;
+    }
+
+    this.send(ws, {
+      channel: "rpc",
+      payload: {
+        type: "response",
+        command: String(command.type || "unknown"),
+        success: false,
+        error: `Unsupported command: ${command.type}`,
+      },
+    });
   }
+
+  // ---------------------------------------------------------------------------
+  // Status UI
+  // ---------------------------------------------------------------------------
 
   updateStatusUi(ctx: AnyCtx) {
     const theme = ctx.ui.theme;
@@ -887,6 +1236,10 @@ export class PhoneServerRuntime {
       ? `Pi Phone running at ${url} for ${this.config.cwd}${this.config.token ? " (token enabled)" : " (no token)"} · ${idleMinutes}`
       : "Pi Phone is stopped";
   }
+
+  // ---------------------------------------------------------------------------
+  // Slash command handlers
+  // ---------------------------------------------------------------------------
 
   async handlePhoneStart(args: string | undefined, ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
@@ -927,8 +1280,6 @@ export class PhoneServerRuntime {
         throw error;
       }
     }
-
-    await this.sessionPool?.ensureDefaultWorker();
 
     if (!parsed.local) {
       ctx.ui.notify("Starting Cloudflare Tunnel...", "info");
@@ -1000,13 +1351,18 @@ export class PhoneServerRuntime {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Session lifecycle handlers
+  // ---------------------------------------------------------------------------
+
   async handleSessionStart(ctx: ExtensionContext) {
     this.captureCtx(ctx);
     if (!this.server) {
       this.config.cwd = this.activeCwd();
     }
     this.updateStatusUi(ctx);
-    this.broadcastStatus();
+    this.broadcastSnapshot();
+    this.broadcastCatalog();
   }
 
   async handleSessionSwitch(ctx: ExtensionContext) {
@@ -1015,7 +1371,8 @@ export class PhoneServerRuntime {
       this.config.cwd = this.activeCwd();
     }
     this.updateStatusUi(ctx);
-    this.broadcastStatus();
+    this.broadcastSnapshot();
+    this.broadcastCatalog();
   }
 
   async handleSessionShutdown(ctx: ExtensionContext) {

@@ -108,12 +108,17 @@ export function transformMessage(message, index) {
 
   if (message.role === "assistant") {
     const parts = assistantParts(message.content);
+    // Skip tool-use-only assistant messages with no text and no thinking
+    if (!parts.text && !parts.thinking && parts.toolCalls.length > 0) return [];
+    // When there's only thinking (no text), promote thinking to body text (styled as thinking)
+    const thinkingAsBody = !parts.text && parts.thinking;
     return [{
       id: `assistant-${message.timestamp || index}`,
       kind: "assistant",
       meta: [message.model, formatTimestamp(message.timestamp)].filter(Boolean).join(" · "),
-      text: parts.text,
-      thinking: parts.thinking,
+      text: thinkingAsBody ? parts.thinking : parts.text,
+      thinking: thinkingAsBody ? "" : parts.thinking,
+      thinkingAsBody,
       toolCalls: parts.toolCalls,
       details: message.usage || message.stopReason ? {
         usage: message.usage,
@@ -273,11 +278,14 @@ function renderMessageInner(item) {
     ? renderUserContent(item.rawContent, item.text || "")
     : { html: "", renderedImages: 0 };
 
-  const bodyMain = richTool || (item.kind === "tool"
+  const bodyText = item.kind === "tool"
     ? `<pre>${escapeHtml(item.text || "")}</pre>`
     : item.kind === "user"
       ? renderedUser.html
-      : renderMarkdownLite(item.text || ""));
+      : renderMarkdownLite(item.text || "");
+  const bodyMain = richTool || (item.thinkingAsBody
+    ? `<div class="thinking-body">${bodyText}</div>`
+    : bodyText);
 
   const detailValue = item.kind === "tool" ? toolDetailsForSecondarySection(item) : item.details;
   const extraDetails = item.kind === "assistant"
