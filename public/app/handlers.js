@@ -395,8 +395,12 @@ export async function handleEnvelope(event) {
 
   if (event.channel === "server") {
     if (event.event === "status") {
+      const prevInputSource = state.status?.inputSource;
       state.status = event.data;
       renderHeader();
+      if (event.data?.inputSource && event.data.inputSource !== prevInputSource) {
+        refreshAll();
+      }
       return;
     }
     if (event.event === "stderr") {

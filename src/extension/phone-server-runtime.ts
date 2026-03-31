@@ -350,7 +350,7 @@ export class PhoneServerRuntime {
       }
     })();
 
-    return { action: "handled" };
+    return { action: "continue" };
   }
 
   private async handleHttp(req: IncomingMessage, res: ServerResponse) {
@@ -941,11 +941,15 @@ export class PhoneServerRuntime {
     }
 
     this.updateStatusUi(ctx);
+    const tunnelInfo = getCloudflareTunnelInfo();
+    const openUrl = tunnelInfo.active && tunnelInfo.url ? tunnelInfo.url : `http://${this.config.host}:${this.config.port}`;
     ctx.ui.notify(this.statusText(), "info");
     if (generatedToken) {
-      ctx.ui.notify(`Generated token: ${this.config.token}`, "warning");
+      ctx.ui.notify(`Open ${openUrl} — token: ${this.config.token}`, "info");
     } else if (this.config.token) {
-      ctx.ui.notify("Token required: use the token you started this server with.", "info");
+      ctx.ui.notify(`Open ${openUrl} (use the token from /phone-token)`, "info");
+    } else {
+      ctx.ui.notify(`Open ${openUrl}`, "info");
     }
   }
 
@@ -986,7 +990,7 @@ export class PhoneServerRuntime {
   handlePhoneToken(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
     if (this.config.token) {
-      ctx.ui.notify(`Pi Phone token: ${this.config.token}`, "warning");
+      ctx.ui.notify(`Pi Phone token: ${this.config.token}`, "info");
     } else {
       ctx.ui.notify("Pi Phone token is disabled for this server.", "info");
     }
