@@ -318,8 +318,11 @@ export function renderHeader() {
   el.sessionValue.textContent = snapshot.sessionName || snapshot.sessionId || activeSession?.label || "Current session";
   el.modelValue.textContent = snapshot.model?.name || snapshot.model?.id || activeSession?.model?.name || "Default";
   el.thinkingValue.textContent = snapshot.thinkingLevel || "—";
-  const owner = status.controlOwner || "cli";
-  el.streamingValue.textContent = `${status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle"} · ${owner}`;
+  const inputSource = status.inputSource || "phone";
+  el.streamingValue.textContent = `${status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle"} · ${inputSource}`;
+  const cliFocused = inputSource === "cli";
+  document.body.classList.toggle("cli-focused", cliFocused);
+  el.promptInput.placeholder = cliFocused ? "CLI has focus — tap to take back" : "Message Pi…";
   el.serverValue.textContent = status.port ? `${status.host || "127.0.0.1"}:${status.port}` : "—";
   updateComposerState();
   renderQuota();

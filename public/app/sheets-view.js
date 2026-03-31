@@ -148,19 +148,17 @@ function sortedActiveSessions() {
 
 function renderActiveSessionsSheet() {
   const sessions = sortedActiveSessions();
-  const parentSessions = sessions.filter((session) => session.kind === "parent");
-  const parallelSessions = sessions.filter((session) => session.kind === "parallel");
+  const inputSource = state.status?.inputSource || "phone";
 
-  const renderSessionButton = (session, sectionKind) => {
+  const renderSessionButton = (session) => {
     const statusBits = [
       session.id === state.activeSessionId ? "current" : "",
-      sectionKind === "parent" ? "mirroring cli" : "parallel",
       session.isStreaming ? "live" : "",
       session.hasPendingUiRequest ? "needs input" : "",
       session.model?.name || "",
       Number.isFinite(session.messageCount) ? `${session.messageCount} messages` : "",
       session.secondaryLabel || "",
-    ].filter(Boolean).join(" · ");
+    ].filter(Boolean).join(" \u00b7 ");
 
     const preview = session.lastUserPreview || session.firstUserPreview || "";
 
@@ -175,25 +173,15 @@ function renderActiveSessionsSheet() {
 
   return `
     <section class="sheet-section">
-      <h3>Parent</h3>
+      <h3>Sessions</h3>
+      <div class="label">Input: <strong>${escapeHtml(inputSource)}</strong></div>
       <div class="button-row compact">
-        <button class="secondary" data-sheet-action="new-parent-session">New Parent</button>
+        <button class="secondary" data-sheet-action="new-parallel-session">New Session</button>
       </div>
       <div class="sheet-list">
-        ${parentSessions.length
-          ? parentSessions.map((session) => renderSessionButton(session, "parent")).join("")
-          : '<div class="label">Parent session unavailable.</div>'}
-      </div>
-    </section>
-    <section class="sheet-section">
-      <h3>Parallel</h3>
-      <div class="button-row compact">
-        <button class="secondary" data-sheet-action="new-parallel-session">New Parallel</button>
-      </div>
-      <div class="sheet-list">
-        ${parallelSessions.length
-          ? parallelSessions.map((session) => renderSessionButton(session, "parallel")).join("")
-          : '<div class="label">No parallel sessions yet. Start one with “New Parallel”.</div>'}
+        ${sessions.length
+          ? sessions.map((session) => renderSessionButton(session)).join("")
+          : '<div class="label">No sessions yet.</div>'}
       </div>
     </section>
   `;

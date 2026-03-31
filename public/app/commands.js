@@ -339,21 +339,6 @@ export function prepareSessionSelection(sessionId) {
   return true;
 }
 
-export function prepareParentSessionNew() {
-  if (state.socket?.readyState !== WebSocket.OPEN) {
-    showToast("Not connected to Pi.", "error");
-    return false;
-  }
-
-  clearSnapshotView();
-  setFollowLatest(true);
-  renderHeader();
-  renderMessages({ forceScroll: true });
-  showToast("Starting new parent session…");
-  state.socket.send(JSON.stringify({ kind: "session-parent-new" }));
-  return true;
-}
-
 export function prepareSessionSpawn() {
   if (state.socket?.readyState !== WebSocket.OPEN) {
     showToast("Not connected to Pi.", "error");
@@ -364,7 +349,7 @@ export function prepareSessionSpawn() {
   setFollowLatest(true);
   renderHeader();
   renderMessages({ forceScroll: true });
-  showToast("Opening new parallel session…");
+  showToast("Opening new session…");
   state.socket.send(JSON.stringify({ kind: "session-spawn" }));
   return true;
 }

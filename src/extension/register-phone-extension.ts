@@ -9,7 +9,7 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
   const runtime = new PhoneServerRuntime(pi);
 
   pi.registerCommand("phone-start", {
-    description: "Start the phone web UI. Usage: /phone-start [port] [token] [--cwd path] [--host 127.0.0.1] [--idle-mins 20]",
+    description: "Start the phone web UI. Usage: /phone-start [port] [token] [--local] [--cwd path] [--host 127.0.0.1] [--idle-mins 20]",
     handler: async (args, ctx) => {
       await runtime.handlePhoneStart(args, ctx);
     },
@@ -56,48 +56,8 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
     await runtime.handleSessionSwitch(ctx);
   });
 
-  pi.on("session_before_compact", async (_event, ctx) => {
-    runtime.handleParentCompactionStart(ctx);
-  });
-
-  pi.on("session_compact", async (_event, ctx) => {
-    runtime.handleParentCompactionEnd(ctx);
-  });
-
   pi.on("model_select", async (_event, ctx) => {
     await runtime.handleSessionSwitch(ctx);
-  });
-
-  pi.on("agent_start", async (_event, ctx) => {
-    runtime.handleParentAgentStart(ctx);
-  });
-
-  pi.on("agent_end", async (_event, ctx) => {
-    runtime.handleParentAgentEnd(ctx);
-  });
-
-  pi.on("message_start", async (event, ctx) => {
-    runtime.handleParentMessageStart(event, ctx);
-  });
-
-  pi.on("message_update", async (event, ctx) => {
-    runtime.handleParentMessageUpdate(event, ctx);
-  });
-
-  pi.on("message_end", async (event, ctx) => {
-    runtime.handleParentMessageEnd(event, ctx);
-  });
-
-  pi.on("tool_execution_start", async (event, ctx) => {
-    runtime.handleParentToolExecutionStart(event, ctx);
-  });
-
-  pi.on("tool_execution_update", async (event, ctx) => {
-    runtime.handleParentToolExecutionUpdate(event, ctx);
-  });
-
-  pi.on("tool_execution_end", async (event, ctx) => {
-    runtime.handleParentToolExecutionEnd(event, ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {

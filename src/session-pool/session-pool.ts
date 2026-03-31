@@ -51,13 +51,8 @@ export class PhoneSessionPool {
     return session;
   }
 
-  private createDefaultSession() {
-    const session = this.options.createDefaultSession();
-    return this.attachSession(session);
-  }
-
-  private createParallelSession(sessionFile: string | null = null) {
-    const session = this.options.createParallelSession(sessionFile);
+  private createSession(sessionFile: string | null = null) {
+    const session = this.options.createSession(sessionFile);
     return this.attachSession(session);
   }
 
@@ -81,7 +76,7 @@ export class PhoneSessionPool {
     }
 
     this.defaultWorkerPromise = (async () => {
-      const worker = this.createDefaultSession();
+      const worker = this.createSession();
       this.defaultWorkerId = worker.id;
 
       try {
@@ -164,7 +159,6 @@ export class PhoneSessionPool {
         lastError: "",
         childPid: null,
         sessionWorkerId: null,
-        sessionKind: "parallel",
       }),
     };
   }
@@ -181,7 +175,6 @@ export class PhoneSessionPool {
         lastError: "",
         childPid: null,
         sessionWorkerId: null,
-        sessionKind: "parallel",
       }),
       activeSessionId: client?.activeSessionId || null,
     };
@@ -321,7 +314,7 @@ export class PhoneSessionPool {
   }
 
   async spawnSession(ws: WebSocket, sessionFile: string | null = null) {
-    const worker = this.createParallelSession(sessionFile);
+    const worker = this.createSession(sessionFile);
     let added = false;
     const existingClient = this.clients.get(ws);
     const previousActiveSessionId = existingClient?.activeSessionId || null;

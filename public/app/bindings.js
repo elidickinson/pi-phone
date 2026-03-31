@@ -117,7 +117,7 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     if (!button) return;
 
     const sheetAction = button.getAttribute("data-sheet-action") || "";
-    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || ["new-parent-session", "new-parallel-session"].includes(sheetAction);
+    const shouldHandleEarly = button.hasAttribute("data-active-session-id") || ["new-parallel-session"].includes(sheetAction);
     if (!shouldHandleEarly) return;
 
     event.preventDefault();

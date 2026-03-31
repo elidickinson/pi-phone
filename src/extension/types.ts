@@ -12,6 +12,7 @@ export type ParsedPhoneArgs = {
   config: PhoneConfig;
   tokenSpecified: boolean;
   idleSpecified: boolean;
+  local: boolean;
 };
 
 export type PersistedPhoneRuntime = {

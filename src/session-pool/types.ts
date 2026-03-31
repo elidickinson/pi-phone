@@ -1,10 +1,7 @@
 import type { WebSocket } from "ws";
 
-export type SessionKind = "parent" | "parallel";
-
 export type SessionSummary = {
   id: string;
-  kind: SessionKind;
   sessionId: string | null;
   sessionFile: string | null;
   sessionName: string | null;
@@ -23,7 +20,6 @@ export type SessionSummary = {
   lastActivityAt: number;
   childPid: number | null;
   cwd?: string | null;
-  mirrorsCli?: boolean;
 };
 
 export type PendingRequest = {
@@ -70,12 +66,10 @@ export type SessionStatus = {
   lastError: string;
   childPid: number | null;
   sessionWorkerId: string;
-  sessionKind: SessionKind;
 };
 
 export interface SessionController {
   id: string;
-  kind: SessionKind;
   cwd: string;
   previousCwd: string | null;
   currentSessionFile: string | null;
@@ -100,6 +94,5 @@ export type PhoneSessionPoolOptions = {
   send: (ws: WebSocket, payload: unknown) => void;
   onActivity: () => void;
   buildStatusMeta: () => Record<string, unknown>;
-  createDefaultSession: () => SessionController;
-  createParallelSession: (sessionFile?: string | null) => SessionController;
+  createSession: (sessionFile?: string | null) => SessionController;
 };

@@ -162,13 +162,6 @@ function handleRpcPayload(payload) {
       return;
     }
 
-    if (payload.command === "new_parent_session") {
-      clearTransientState();
-      refreshAll();
-      showToast("Started a new parent session.");
-      return;
-    }
-
     if (payload.command === "new_session") {
       clearTransientState();
       refreshAll();

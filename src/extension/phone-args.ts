@@ -5,9 +5,10 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
   const next = { ...current };
   let tokenSpecified = false;
   let idleSpecified = false;
+  let local = false;
 
   if (!args?.trim()) {
-    return { config: next, tokenSpecified, idleSpecified };
+    return { config: next, tokenSpecified, idleSpecified, local };
   }
 
   const tokens = args.trim().split(/\s+/);
@@ -101,6 +102,12 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
       continue;
     }
 
+    if (token === "--local" || token === "local") {
+      local = true;
+      index += 1;
+      continue;
+    }
+
     if (/^\d+$/.test(token)) {
       next.port = Number(token);
       index += 1;
@@ -117,5 +124,5 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
     index += 1;
   }
 
-  return { config: next, tokenSpecified, idleSpecified };
+  return { config: next, tokenSpecified, idleSpecified, local };
 }
