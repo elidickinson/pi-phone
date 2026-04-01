@@ -1158,6 +1158,10 @@ pre {
   margin: 0 0 0.75rem;
 }
 
+.sheet-section {
+  padding: 1rem;
+}
+
 .sheet-actions {
   display: grid;
   gap: 0.75rem;
