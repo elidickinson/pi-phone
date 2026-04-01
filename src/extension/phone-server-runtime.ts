@@ -1103,7 +1103,7 @@ export class PhoneServerRuntime {
 
     if (command.type === "new_session") {
       try {
-        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone start first.");
         await this.latestCommandCtx.newSession();
         this.send(ws, {
           channel: "rpc",
@@ -1122,7 +1122,7 @@ export class PhoneServerRuntime {
 
     if (command.type === "switch_session") {
       try {
-        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone start first.");
         await this.latestCommandCtx.switchSession(String(command.sessionPath || ""));
         this.send(ws, {
           channel: "rpc",
@@ -1141,7 +1141,7 @@ export class PhoneServerRuntime {
 
     if (command.type === "fork") {
       try {
-        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone start first.");
         await this.latestCommandCtx.fork(String(command.entryId || ""));
         this.send(ws, {
           channel: "rpc",
@@ -1201,7 +1201,7 @@ export class PhoneServerRuntime {
         const sessionFile = this.latestCtx?.sessionManager?.getSessionFile?.();
         if (!sessionFile) throw new Error("No active session file.");
         const nextPath = createBranchSessionFromEntry(sessionFile, String(command.entryId || ""));
-        if (!this.latestCommandCtx) throw new Error("No command context — run /phone-start first.");
+        if (!this.latestCommandCtx) throw new Error("No command context — run /phone start first.");
         await this.latestCommandCtx.switchSession(nextPath);
         this.send(ws, {
           channel: "rpc",
@@ -1366,7 +1366,7 @@ export class PhoneServerRuntime {
       if (showTokenDirectly) {
         ctx.ui.notify(`Open ${openUrl} — token: ${this.config.token}`, "info");
       } else {
-        ctx.ui.notify(`Open ${openUrl} (use the token from /phone-token)`, "info");
+        ctx.ui.notify(`Open ${openUrl} (use the token from /phone token)`, "info");
       }
     } else {
       ctx.ui.notify(`Open ${openUrl}`, "info");
@@ -1401,9 +1401,6 @@ export class PhoneServerRuntime {
     this.notifyAccessInfo(ctx);
   }
 
-  // TODO: /phone-token routes to handlePhoneStatus for unknown reasons — Pi runner
-  // maps the command name correctly but the wrong handler runs. Merged both into
-  // notifyAccessInfo as a workaround.
   handlePhoneToken(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
     this.notifyAccessInfo(ctx);
@@ -1429,7 +1426,7 @@ export class PhoneServerRuntime {
             : null;
 
     if (!url) {
-      ctx.ui.notify("Phone server is not running — start it with /phone-start first.", "warning");
+      ctx.ui.notify("Phone server is not running — start it with /phone start first.", "warning");
       return;
     }
 

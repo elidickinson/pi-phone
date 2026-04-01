@@ -144,7 +144,7 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
   el.tokenSaveButton.addEventListener("click", () => {
     const nextToken = el.tokenInput.value.trim();
     if (!nextToken) {
-      showToast("Enter the current /phone-start token.", "error");
+      showToast("Enter the current /phone start token.", "error");
       el.tokenInput.focus();
       return;
     }

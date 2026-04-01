@@ -4,38 +4,36 @@ import { PhoneServerRuntime } from "./phone-server-runtime";
 export default function registerPhoneExtension(pi: ExtensionAPI) {
   const runtime = new PhoneServerRuntime(pi);
 
-  pi.registerCommand("phone-start", {
-    description: "Start the phone web UI. Usage: /phone-start [port] [token] [--local] [--cwd path] [--host 127.0.0.1] [--idle-mins 20]",
+  pi.registerCommand("phone", {
+    description: "Pi Phone subcommands: start, stop, status, token, pushover",
     handler: async (args, ctx) => {
-      await runtime.handlePhoneStart(args, ctx);
-    },
-  });
+      const trimmed = (args || "").trim();
+      const spaceIdx = trimmed.indexOf(" ");
+      const sub = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+      const rest = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
 
-  pi.registerCommand("phone-stop", {
-    description: "Stop the phone web UI server and Cloudflare tunnel",
-    handler: async (_args, ctx) => {
-      await runtime.handlePhoneStop(ctx);
-    },
-  });
-
-  pi.registerCommand("phone-status", {
-    description: "Show phone server and tunnel status",
-    handler: async (_args, ctx) => {
-      await runtime.handlePhoneStatus(ctx);
-    },
-  });
-
-  pi.registerCommand("phone-token", {
-    description: "Show the current phone UI token",
-    handler: async (_args, ctx) => {
-      runtime.handlePhoneToken(ctx);
-    },
-  });
-
-  pi.registerCommand("phone-pushover", {
-    description: "Send Pi Phone URL and token to Pushover",
-    handler: async (_args, ctx) => {
-      await runtime.handlePhonePushover(ctx);
+      switch (sub) {
+        case "start":
+          await runtime.handlePhoneStart(rest, ctx);
+          break;
+        case "stop":
+          await runtime.handlePhoneStop(ctx);
+          break;
+        case "status":
+          await runtime.handlePhoneStatus(ctx);
+          break;
+        case "token":
+          runtime.handlePhoneToken(ctx);
+          break;
+        case "pushover":
+          await runtime.handlePhonePushover(ctx);
+          break;
+        default:
+          ctx.ui.notify(
+            "Pi Phone commands:\n/phone start [port] [token] [--local] [--cwd path] [--host 127.0.0.1] [--idle-mins 20]\n/phone stop\n/phone status\n/phone token\n/phone pushover",
+            "info",
+          );
+      }
     },
   });
 

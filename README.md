@@ -68,7 +68,7 @@ pi
 Inside Pi:
 
 ```text
-/phone-start
+/phone start
 ```
 
 By default this:
@@ -97,7 +97,7 @@ If you did not explicitly disable the token, the extension requires the token sh
 You can view it again at any time with:
 
 ```text
-/phone-token
+/phone token
 ```
 
 ## Static hostname (optional)
@@ -116,7 +116,7 @@ By default, Pi Phone uses random `*.trycloudflare.com` URLs. For a persistent ho
 
 Or pass via CLI:
 ```text
-/phone-start --cf-token eyJ... --cf-hostname phone.example.com
+/phone start --cf-token eyJ... --cf-hostname phone.example.com
 ```
 
 Each Pi Phone instance should use its own tunnel (create multiple tunnels in the dashboard if needed).
@@ -134,26 +134,26 @@ Send the Pi Phone URL and token to your devices via [Pushover](https://pushover.
    ```
 4. **Start Pi Phone**, then run:
    ```text
-   /phone-pushover
+   /phone pushover
    ```
 
 This sends a notification you can tap to open the phone UI.
 
 ## Command reference
 
-### `/phone-start`
+### `/phone start`
 
 Examples:
 
 ```text
-/phone-start
-/phone-start 8787
-/phone-start 8787 mytoken
-/phone-start --port 8787 --token mytoken --host 127.0.0.1
-/phone-start --cwd /path/to/project
-/phone-start --idle-mins 20
-/phone-start --idle-secs 90
-/phone-start --cf-token eyJ... --cf-hostname phone.example.com
+/phone start
+/phone start 8787
+/phone start 8787 mytoken
+/phone start --port 8787 --token mytoken --host 127.0.0.1
+/phone start --cwd /path/to/project
+/phone start --idle-mins 20
+/phone start --idle-secs 90
+/phone start --cf-token eyJ... --cf-hostname phone.example.com
 ```
 
 Behavior:
@@ -169,37 +169,37 @@ Behavior:
 Use `-` to explicitly disable the token:
 
 ```text
-/phone-start 8787 -
+/phone start 8787 -
 ```
 
-### `/phone-stop`
+### `/phone stop`
 
 ```text
-/phone-stop
+/phone stop
 ```
 
 Stops the phone server and Cloudflare tunnel.
 
-### `/phone-status`
+### `/phone status`
 
 ```text
-/phone-status
+/phone status
 ```
 
 Shows whether the phone server is running, whether the parent session is currently owned by the CLI or phone, and whether Cloudflare tunnel is currently pointing at it.
 
-### `/phone-token`
+### `/phone token`
 
 ```text
-/phone-token
+/phone token
 ```
 
 Shows the current token, or tells you that token auth is disabled for the current phone server.
 
-### `/phone-pushover`
+### `/phone pushover`
 
 ```text
-/phone-pushover
+/phone pushover
 ```
 
 Sends the Pi Phone URL and token to your devices via Pushover. Requires `PI_PHONE_PUSHOVER_TOKEN` and `PI_PHONE_PUSHOVER_USER` environment variables.
@@ -207,11 +207,11 @@ Sends the Pi Phone URL and token to your devices via Pushover. Requires `PI_PHON
 ## Typical usage flow
 
 1. Start Pi in your project
-2. Run `/phone-start`
+2. Run `/phone start`
 3. Open the Cloudflare tunnel URL on your phone
 4. Enter the token once if prompted
 5. Work from the phone UI
-6. When done, run `/phone-stop`
+6. When done, run `/phone stop`
 
 ## Parent and parallel sessions
 
@@ -272,7 +272,7 @@ This is most useful for normal prompts and non-extension slash commands. Extensi
 - The phone starts by mirroring the live CLI session and uses a single ownership model: either the CLI or the phone is the active writer at a time.
 - If you open additional parallel sessions from the phone UI, those run as child `pi --mode rpc` sessions.
 - The phone server auto-stops after the configured idle timeout.
-- The Cloudflare tunnel process is killed on idle timeout, `/phone-stop`, and parent Pi shutdown.
+- The Cloudflare tunnel process is killed on idle timeout, `/phone stop`, and parent Pi shutdown.
 - Parallel child Pi processes set `PI_PHONE_CHILD=1` so the extension does not recursively start nested phone servers.
 - The phone browser stores the token in local storage for convenience.
 
@@ -287,8 +287,8 @@ The UI includes a quota pill for supported `openai-codex` `gpt-*` models when lo
 If Pi reports that the port is already in use:
 
 ```text
-/phone-stop
-/phone-start
+/phone stop
+/phone start
 ```
 
 ### Cloudflare tunnel did not start
@@ -300,14 +300,14 @@ The `cloudflared` binary is bundled as an npm dependency. Try reinstalling the e
 If the phone UI says the token is invalid, run:
 
 ```text
-/phone-token
+/phone token
 ```
 
 Then re-enter the latest token. If needed, restart the server with a fresh token:
 
 ```text
-/phone-stop
-/phone-start
+/phone stop
+/phone start
 ```
 
 ### Phone cannot edit the parent session right now

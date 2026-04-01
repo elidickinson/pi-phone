@@ -30,7 +30,7 @@ export function handleAuthFailure() {
   state.socket = null;
   renderHeader();
   openTokenModal();
-  showBanner("Access token required. Enter the current /phone-start token.", "error");
+  showBanner("Access token required. Enter the current /phone start token.", "error");
 }
 
 function sendUiResponse(payload) {
