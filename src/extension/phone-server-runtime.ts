@@ -1409,7 +1409,10 @@ export class PhoneServerRuntime {
   async handlePhonePushover(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
 
-    if (!this.config.pushoverToken || !this.config.pushoverUser) {
+    const pushoverToken = process.env.PI_PHONE_PUSHOVER_TOKEN || this.config.pushoverToken;
+    const pushoverUser = process.env.PI_PHONE_PUSHOVER_USER || this.config.pushoverUser;
+
+    if (!pushoverToken || !pushoverUser) {
       ctx.ui.notify("Set PI_PHONE_PUSHOVER_TOKEN and PI_PHONE_PUSHOVER_USER env vars to use Pushover.", "warning");
       return;
     }
@@ -1432,8 +1435,8 @@ export class PhoneServerRuntime {
 
     const message = this.config.token ? `${url} — Token: ${this.config.token}` : url;
     const result = await sendPushoverNotification(
-      this.config.pushoverToken,
-      this.config.pushoverUser,
+      pushoverToken,
+      pushoverUser,
       "Pi Phone",
       message,
       url,
