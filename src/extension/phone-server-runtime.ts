@@ -1297,22 +1297,25 @@ export class PhoneServerRuntime {
     }
 
     if (!this.server) {
-      try {
-        await this.startServer();
-      } catch (error) {
-        if (isAddressInUseError(error)) {
-          this.latestError = error instanceof Error ? error.message : String(error);
-          this.updateStatusUi(ctx);
-          const existingRuntime = await readPersistedRuntimeState(this.config.host, this.config.port);
-          ctx.ui.notify(
-            existingRuntime
-              ? `Another Pi Phone instance is already using ${this.config.host}:${this.config.port}. Run /phone-stop, then /phone-start again.`
-              : `Port ${this.config.host}:${this.config.port} is already in use. If it is another Pi Phone instance, run /phone-stop, then /phone-start again.`,
-            "warning",
-          );
-          return;
+      const startPort = this.config.port;
+      const maxAttempts = 100;
+      let lastError: unknown = null;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await this.startServer();
+          break;
+        } catch (error) {
+          if (!isAddressInUseError(error)) throw error;
+          lastError = error;
+          this.config.port++;
         }
-        throw error;
+      }
+
+      if (this.server && this.config.port !== startPort) {
+        ctx.ui.notify(`Port ${startPort} in use, using port ${this.config.port} instead.`, "info");
+      } else if (!this.server) {
+        throw lastError;
       }
     }
 
