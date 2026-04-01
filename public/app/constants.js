@@ -9,8 +9,6 @@ export const LOCAL_COMMAND_DEFINITIONS = [
   { name: "model", description: "Open model picker" },
   { name: "thinking", description: "Open thinking level picker" },
   { name: "commands", description: "Browse commands, skills, and prompts" },
-  { name: "sessions", description: "Browse saved sessions" },
-  { name: "tree", description: "Browse the current session tree" },
   { name: "cd", description: "Change Pi working directory", insertOnly: true },
   { name: "refresh", description: "Refresh snapshot" },
 ];

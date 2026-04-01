@@ -320,12 +320,9 @@ function flushHeader() {
 
   const status = state.status || state.health || {};
   applyThemePalette(status.theme || state.health?.theme || null);
-  const snapshotMatchesActive = !state.snapshotWorkerId || !state.activeSessionId || state.snapshotWorkerId === state.activeSessionId;
-  const snapshot = snapshotMatchesActive ? (state.snapshotState || {}) : {};
-  const activeSession = state.activeSessions.find((session) => session.id === state.activeSessionId) || null;
+  const snapshot = state.snapshotState || {};
   el.cwdValue.textContent = status.cwd || "—";
-  el.sessionValue.textContent = snapshot.sessionName || snapshot.sessionId || activeSession?.label || "Current session";
-  el.modelValue.textContent = snapshot.model?.name || snapshot.model?.id || activeSession?.model?.name || "Default";
+  el.modelValue.textContent = snapshot.model?.name || snapshot.model?.id || "Default";
   el.thinkingValue.textContent = snapshot.thinkingLevel || "—";
   const inputSource = status.inputSource || "phone";
   el.streamingValue.textContent = `${status.isStreaming || snapshot.isStreaming ? "Streaming" : "Idle"} · ${inputSource}`;
@@ -348,7 +345,24 @@ export function openTokenModal() {
     el.tokenInput.value = state.token;
   }
   el.loginModal.classList.remove("hidden");
+  applyPasswordManagerIgnore();
   setTimeout(() => el.tokenInput.focus(), 10);
+}
+
+export function applyPasswordManagerIgnore() {
+  if (!el.tokenInput) return;
+  if (state.status?.passwordManagerIgnore || state.health?.passwordManagerIgnore) {
+    el.tokenInput.setAttribute("data-1p-ignore", "");
+    el.tokenInput.setAttribute("data-lpignore", "true");
+    el.tokenInput.setAttribute("data-bwignore", "true");
+    el.tokenInput.setAttribute("data-form-type", "other");
+    el.tokenInput.setAttribute("autocomplete", "off");
+  } else {
+    el.tokenInput.removeAttribute("data-1p-ignore");
+    el.tokenInput.removeAttribute("data-lpignore");
+    el.tokenInput.removeAttribute("data-bwignore");
+    el.tokenInput.removeAttribute("data-form-type");
+  }
 }
 
 export function closeTokenModal() {

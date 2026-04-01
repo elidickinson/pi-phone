@@ -235,6 +235,9 @@ function renderDetailSection(title, value, options = {}) {
 }
 
 function renderAssistantDetails(item) {
+  // Skip details for live items since they get re-rendered frequently, losing expanded state
+  if (item.live) return "";
+
   const sections = [];
   if (item.thinking) sections.push(renderDetailSection("Thinking", item.thinking, { markdown: true }));
 
@@ -408,7 +411,7 @@ function flushRenderMessages({ forceScroll, streaming }) {
       <article class="message system">
         <div class="message-header"><div class="role-badge">Ready</div></div>
         <div class="message-body">
-          <p>This phone UI now exposes much more of Pi: commands, models, thinking, sessions, tree history, custom extension messages, and image upload.</p>
+          <p>This phone UI exposes Pi: commands, models, thinking, compact, custom extension messages, and image upload.</p>
         </div>
       </article>
     `;

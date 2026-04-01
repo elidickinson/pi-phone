@@ -7,6 +7,7 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
   let idleSpecified = false;
   let local = false;
   let cfTokenSpecified = false;
+  let passwordManagerIgnoreSpecified = false;
 
   if (!args?.trim()) {
     return { config: next, tokenSpecified, idleSpecified, local, cfTokenSpecified };
@@ -131,6 +132,13 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
 
     if (token === "--local" || token === "local") {
       local = true;
+      index += 1;
+      continue;
+    }
+
+    if (token === "--no-password-manager") {
+      passwordManagerIgnoreSpecified = true;
+      next.passwordManagerIgnore = true;
       index += 1;
       continue;
     }

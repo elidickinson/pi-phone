@@ -171,14 +171,6 @@ export function tryHandleLocalCommand(text, { hasAttachments = false } = {}) {
     openSheet("commands");
     return "handled";
   }
-  if (name === "sessions") {
-    openSheet("sessions");
-    return "handled";
-  }
-  if (name === "tree") {
-    openSheet("tree");
-    return "handled";
-  }
   if (name === "cd") {
     return sendLocalCommand({ type: "cd", args }) ? "handled" : "blocked";
   }
@@ -325,31 +317,4 @@ export function handleInsertOnlyLocalCommand(commandName) {
   return true;
 }
 
-export function prepareSessionSelection(sessionId) {
-  if (state.socket?.readyState !== WebSocket.OPEN) {
-    showToast("Not connected to Pi.", "error");
-    return false;
-  }
 
-  clearSnapshotView();
-  setFollowLatest(true);
-  renderHeader();
-  renderMessages({ forceScroll: true });
-  state.socket.send(JSON.stringify({ kind: "session-select", sessionId }));
-  return true;
-}
-
-export function prepareSessionSpawn() {
-  if (state.socket?.readyState !== WebSocket.OPEN) {
-    showToast("Not connected to Pi.", "error");
-    return false;
-  }
-
-  clearSnapshotView();
-  setFollowLatest(true);
-  renderHeader();
-  renderMessages({ forceScroll: true });
-  showToast("Opening new session…");
-  state.socket.send(JSON.stringify({ kind: "session-spawn" }));
-  return true;
-}

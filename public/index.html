@@ -11,8 +11,6 @@
     <link rel="stylesheet" href="/styles.css?v=20260323-1" />
   </head>
   <body>
-    <button id="session-sidebar-button" class="sidebar-toggle-button secondary" aria-label="Open session browser" title="Open session browser">☰ Sessions</button>
-
     <div class="app-shell">
       <header class="topbar">
         <div>
@@ -28,10 +26,6 @@
           <div>
             <div class="label">Working directory</div>
             <div class="value mono" id="cwd-value">—</div>
-          </div>
-          <div>
-            <div class="label">Session</div>
-            <div class="value" id="session-value">—</div>
           </div>
           <div>
             <div class="label">Model</div>
@@ -53,7 +47,6 @@
         <div class="button-row compact">
           <button id="actions-button" class="secondary">Actions</button>
           <button id="refresh-button" class="secondary">Refresh</button>
-          <button id="tree-browser-button" class="secondary">Tree</button>
           <button id="abort-button" class="danger">Abort</button>
         </div>
       </section>
@@ -131,7 +124,6 @@
             <h2 id="sheet-title">Actions</h2>
           </div>
           <div class="sheet-header-actions">
-            <button id="sheet-saved-sessions-button" class="secondary hidden">Saved sessions</button>
             <button id="sheet-close-button" class="secondary">Close</button>
           </div>
         </div>

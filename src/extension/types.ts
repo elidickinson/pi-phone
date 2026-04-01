@@ -10,6 +10,7 @@ export type PhoneConfig = {
   cfHostname: string;
   pushoverToken: string;
   pushoverUser: string;
+  passwordManagerIgnore: boolean;
 };
 
 export type ParsedPhoneArgs = {
