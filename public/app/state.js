@@ -34,6 +34,7 @@ export const state = {
   attachments: [],
   nextAttachmentTokenId: 1,
   toolPanelOpen: new Map(),
+  messageExpanded: new Set(),
 };
 
 export const el = {

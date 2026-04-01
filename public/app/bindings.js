@@ -2,6 +2,7 @@ import { addAttachments, clearAttachments, removeAttachment, renderAttachmentStr
 import { renderCommandSuggestions } from "./autocomplete-controller.js";
 import { applyAutocompleteItem, submitPrompt } from "./commands.js";
 import { el, state } from "./state.js";
+import { updateMessageCaps } from "./messages.js";
 import { handleSheetButtonAction } from "./sheet-actions.js";
 import { closeSheet, openSheet } from "./sheet-navigation.js";
 import { renderSheet } from "./sheets-view.js";
@@ -152,12 +153,43 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     }
   });
 
+  // Message expand/collapse buttons
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".msg-expand-btn");
+    if (!button) return;
+
+    const msgId = button.dataset.msgId;
+    if (!msgId) return;
+
+    const wasExpanded = state.messageExpanded.has(msgId);
+    if (wasExpanded) {
+      state.messageExpanded.delete(msgId);
+    } else {
+      state.messageExpanded.add(msgId);
+    }
+
+    updateMessageCaps();
+
+    // Scroll into view if just expanded (after reflow)
+    if (!wasExpanded) {
+      requestAnimationFrame(() => {
+        const body = el.messages.querySelector(`[data-item-id="${CSS.escape(msgId)}"] .message-body`);
+        body?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+  });
+
   document.addEventListener("toggle", (event) => {
     const details = event.target;
     if (!(details instanceof HTMLDetailsElement)) return;
     const itemId = details.getAttribute("data-tool-panel");
     if (!itemId) return;
     state.toolPanelOpen.set(itemId, details.open);
+  }, true);
+
+  // Re-measure message caps when images load
+  el.messages.addEventListener("load", (e) => {
+    if (e.target instanceof HTMLImageElement) updateMessageCaps();
   }, true);
 
   window.addEventListener("beforeunload", () => {

@@ -373,6 +373,7 @@ pre {
 
 .message-body {
   line-height: 1.5;
+  position: relative;
 }
 
 .message-body p {
@@ -415,6 +416,36 @@ pre {
 
 .message-body > .message-code-block:first-child {
   margin-top: 0;
+}
+
+/* Message height capping */
+.msg-capped .message-body {
+  max-height: 50vh;
+  overflow: hidden;
+}
+
+.msg-expand-btn {
+  display: none;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  float: right;
+}
+
+.msg-capped .msg-expand-btn,
+.msg-expanded .msg-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.msg-expanded .message-body {
+  max-height: none;
 }
 
 .message-code-block code {

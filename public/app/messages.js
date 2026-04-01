@@ -297,6 +297,10 @@ function renderMessageInner(item) {
       ? renderDetailSection("Details", toDetailString(detailValue))
       : "";
 
+  const expandButton = item.live
+    ? ""
+    : `<button class="msg-expand-btn" data-msg-id="${escapeAttribute(item.id)}"></button>`;
+
   return `
       <div class="message-header">
         <div class="role-badge">${escapeHtml(roleLabel)}${item.live ? " · live" : ""}</div>
@@ -307,11 +311,15 @@ function renderMessageInner(item) {
         ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
         ${extraDetails}
       </div>
+      ${expandButton}
   `;
 }
 
 function renderMessage(item) {
-  return `<article class="message ${item.kind}" data-item-id="${escapeAttribute(item.id)}">${renderMessageInner(item)}</article>`;
+  const isExpanded = state.messageExpanded.has(item.id);
+  // Don't eagerly cap - let updateMessageCaps decide after measuring
+  const capClass = item.live ? "" : (isExpanded ? "msg-expanded" : "");
+  return `<article class="message ${item.kind} ${capClass}" data-item-id="${escapeAttribute(item.id)}">${renderMessageInner(item)}</article>`;
 }
 
 function enrichToolItems(items) {
@@ -445,10 +453,34 @@ function flushRenderMessages({ forceScroll, streaming }) {
     renderedLiveIds = new Set(items.filter(item => item.live).map(item => item.id));
   }
 
+  // Apply height caps after DOM is updated
+  updateMessageCaps();
+
   renderedItemIds = nextIds;
   updateJumpToLatestButton();
   scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
 }
+
+function updateMessageCaps() {
+  const capPx = window.innerHeight * 0.5; // 50vh
+  for (const article of el.messages.querySelectorAll('.message')) {
+    const body = article.querySelector('.message-body');
+    const btn = article.querySelector('.msg-expand-btn');
+    if (!body || !btn) continue;
+
+    const msgId = article.dataset.itemId || '';
+    const isExpanded = state.messageExpanded.has(msgId);
+    const overflows = body.scrollHeight > capPx + 4;
+    const needsCap = !isExpanded && overflows;
+
+    article.classList.toggle('msg-capped', needsCap);
+    article.classList.toggle('msg-expanded', isExpanded);
+    btn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    btn.textContent = isExpanded ? '▲ less' : '▼ more';
+  }
+}
+
+export { updateMessageCaps };
 
 export function renderWidgets() {
   const widgets = [...state.widgets.entries()];
