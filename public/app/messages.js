@@ -300,6 +300,7 @@ function renderMessageInner(item) {
   const expandButton = item.live
     ? ""
     : `<button class="msg-expand-btn" data-msg-id="${escapeAttribute(item.id)}"></button>`;
+  const gradientElement = item.live ? "" : `<div class="msg-gradient"></div>`;
 
   return `
       <div class="message-header">
@@ -310,6 +311,7 @@ function renderMessageInner(item) {
         ${bodyMain}
         ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
         ${extraDetails}
+        ${gradientElement}
       </div>
       ${expandButton}
   `;
