@@ -8,6 +8,8 @@ export type PhoneConfig = {
   idleTimeoutMs: number;
   cfToken: string;
   cfHostname: string;
+  pushoverToken: string;
+  pushoverUser: string;
 };
 
 export type ParsedPhoneArgs = {

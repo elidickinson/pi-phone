@@ -35,6 +35,7 @@ import {
 } from "./phone-sessions";
 import { mimeTypes, publicFilePath, sanitizePublicPath } from "./phone-static";
 import { disableCloudflareTunnel, enableCloudflareTunnel, getCloudflareTunnelInfo } from "./phone-cloudflare";
+import { sendPushoverNotification } from "./phone-pushover";
 import { buildThemePayload } from "./phone-theme";
 import type { PhoneConfig } from "./types";
 
@@ -111,6 +112,8 @@ export class PhoneServerRuntime {
       : DEFAULT_IDLE_TIMEOUT_MS,
     cfToken: process.env.PI_PHONE_CF_TOKEN || "",
     cfHostname: process.env.PI_PHONE_CF_HOSTNAME || "",
+    pushoverToken: process.env.PI_PHONE_PUSHOVER_TOKEN || "",
+    pushoverUser: process.env.PI_PHONE_PUSHOVER_USER || "",
   };
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -1404,6 +1407,46 @@ export class PhoneServerRuntime {
   handlePhoneToken(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
     this.notifyAccessInfo(ctx);
+  }
+
+  async handlePhonePushover(ctx: ExtensionCommandContext) {
+    this.captureCtx(ctx);
+
+    if (!this.config.pushoverToken || !this.config.pushoverUser) {
+      ctx.ui.notify("Set PI_PHONE_PUSHOVER_TOKEN and PI_PHONE_PUSHOVER_USER env vars to use Pushover.", "warning");
+      return;
+    }
+
+    const tunnel = getCloudflareTunnelInfo();
+    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
+    const url =
+      tunnel.active && cfUrl
+        ? cfUrl
+        : tunnel.active && tunnel.url
+          ? tunnel.url
+          : this.server
+            ? `http://${this.config.host}:${this.config.port}`
+            : null;
+
+    if (!url) {
+      ctx.ui.notify("Phone server is not running — start it with /phone-start first.", "warning");
+      return;
+    }
+
+    const message = this.config.token ? `${url} — Token: ${this.config.token}` : url;
+    const result = await sendPushoverNotification(
+      this.config.pushoverToken,
+      this.config.pushoverUser,
+      "Pi Phone",
+      message,
+      url,
+    );
+
+    if (result.success) {
+      ctx.ui.notify("Pushover notification sent.", "info");
+    } else {
+      ctx.ui.notify(`Pushover error: ${result.error}`, "error");
+    }
   }
 
   private notifyAccessInfo(ctx: AnyCtx) {

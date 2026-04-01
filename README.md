@@ -121,6 +121,24 @@ Or pass via CLI:
 
 Each Pi Phone instance should use its own tunnel (create multiple tunnels in the dashboard if needed).
 
+## Pushover notifications (optional)
+
+Send the Pi Phone URL and token to your devices via [Pushover](https://pushover.net):
+
+1. **Create a Pushover application** at https://pushover.net/apps → Create an Application/API Token
+2. **Copy your app token** and **user key** from the dashboard
+3. **Set the environment variables** before starting Pi:
+   ```bash
+   export PI_PHONE_PUSHOVER_TOKEN="your-app-token"
+   export PI_PHONE_PUSHOVER_USER="your-user-key"
+   ```
+4. **Start Pi Phone**, then run:
+   ```text
+   /phone-pushover
+   ```
+
+This sends a notification you can tap to open the phone UI.
+
 ## Command reference
 
 ### `/phone-start`
@@ -177,6 +195,14 @@ Shows whether the phone server is running, whether the parent session is current
 ```
 
 Shows the current token, or tells you that token auth is disabled for the current phone server.
+
+### `/phone-pushover`
+
+```text
+/phone-pushover
+```
+
+Sends the Pi Phone URL and token to your devices via Pushover. Requires `PI_PHONE_PUSHOVER_TOKEN` and `PI_PHONE_PUSHOVER_USER` environment variables.
 
 ## Typical usage flow
 

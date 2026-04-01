@@ -32,6 +32,13 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("phone-pushover", {
+    description: "Send Pi Phone URL and token to Pushover",
+    handler: async (_args, ctx) => {
+      await runtime.handlePhonePushover(ctx);
+    },
+  });
+
   // CLI input tracking
   pi.on("input", async (event, ctx) => {
     return runtime.handleInput(event, ctx);
