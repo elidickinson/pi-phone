@@ -162,6 +162,23 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     }
   });
 
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".tool-preview-truncated");
+    if (!button) return;
+
+    event.preventDefault();
+    const block = button.closest(".tool-diff-block, .tool-code-block, .tool-markdown-preview, .tool-terminal-block, .tool-match-group, .tool-match-groups, .tool-entry-list");
+    if (block) {
+      const wasExpanded = block.classList.contains("expanded");
+      block.classList.toggle("expanded");
+      button.classList.toggle("expanded");
+      const originalText = button.dataset.label || button.textContent;
+      button.textContent = wasExpanded
+        ? originalText
+        : "Show less";
+    }
+  });
+
   document.addEventListener("toggle", (event) => {
     const details = event.target;
     if (!(details instanceof HTMLDetailsElement)) return;

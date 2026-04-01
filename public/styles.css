@@ -575,10 +575,47 @@ pre {
   margin-top: 0.5rem;
 }
 
-.tool-panel-note,
-.tool-preview-truncated {
+.tool-panel-note {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.tool-preview-overflow {
+  display: none;
+}
+
+.tool-diff-block.expanded > .tool-preview-overflow,
+.tool-code-block.expanded > .tool-preview-overflow,
+.tool-markdown-preview.expanded > .tool-preview-overflow,
+.tool-terminal-block.expanded > .tool-preview-overflow,
+.tool-match-group.expanded > .tool-match-group-lines > .tool-preview-overflow,
+.tool-match-groups.expanded > .tool-preview-overflow[data-overflow-kind="file"],
+.tool-entry-list.expanded > .tool-preview-overflow {
+  display: block;
+}
+
+.tool-preview-truncated {
+  display: block;
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.25rem;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-preview-truncated:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tool-preview-truncated.expanded {
+  border-style: solid;
+  color: var(--text);
 }
 
 .tool-diff-block,
@@ -645,16 +682,23 @@ pre {
 }
 
 .tool-terminal-block {
-  margin: 0;
-  padding: 0.8rem 0.9rem;
-  border-radius: 14px;
+  overflow-x: auto;
+  border-radius: 6px;
   border: 1px solid rgba(127, 212, 255, 0.12);
   background: rgba(7, 12, 16, 0.96);
+}
+
+.tool-terminal-block > pre {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
   color: #d7e9ff;
-  overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.82rem;
+}
+
+.tool-terminal-block > pre + pre {
+  border-top: 1px solid rgba(127, 212, 255, 0.12);
 }
 
 .tool-markdown-preview {
@@ -766,7 +810,7 @@ pre {
   }
 
   .tool-match-group-header,
-  .tool-terminal-block {
+  .tool-terminal-block > pre {
     padding-left: 0.65rem;
     padding-right: 0.65rem;
   }
