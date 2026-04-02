@@ -249,6 +249,7 @@ export async function submitPrompt({ steer = false } = {}) {
   if (localCommandResult) {
     if (localCommandResult === "handled") {
       el.promptInput.value = "";
+      el.promptInput.blur();
       autoResizeTextarea();
       renderCommandSuggestions();
     }
@@ -271,6 +272,7 @@ export async function submitPrompt({ steer = false } = {}) {
     if (remoteCommandResult) {
       if (remoteCommandResult === "handled") {
         el.promptInput.value = "";
+        el.promptInput.blur();
         autoResizeTextarea();
         renderCommandSuggestions();
         clearAttachments();
@@ -298,6 +300,7 @@ export async function submitPrompt({ steer = false } = {}) {
   setFollowLatest(true);
   renderMessages({ forceScroll: true });
   el.promptInput.value = "";
+  el.promptInput.blur();
   autoResizeTextarea();
   renderCommandSuggestions();
   clearAttachments();
