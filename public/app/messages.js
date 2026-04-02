@@ -307,7 +307,7 @@ function renderMessageInner(item) {
   return `
       <div class="message-header">
         <div class="role-badge">${escapeHtml(roleLabel)}${item.live ? " · live" : ""}</div>
-        <div class="meta">${escapeHtml(item.meta || "")}${metaPills}</div>
+        <div class="meta">${metaPills}${escapeHtml(item.meta || "")}</div>
       </div>
       <div class="message-body">
         ${bodyMain}

@@ -196,7 +196,7 @@ pre {
   color: var(--accent);
   padding: 0.25rem 0.5rem;
   font-size: var(--text-xs);
-  margin-left: 0.5rem;
+  margin-right: 0.5rem;
 }
 
 .status-pill.offline {
