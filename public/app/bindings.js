@@ -210,6 +210,9 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     const msgId = article?.dataset.itemId;
     if (!msgId) return;
 
+    // Check if near bottom before expand
+    const wasNearBottom = isNearBottom();
+
     const wasExpanded = state.messageExpanded.has(msgId);
     if (wasExpanded) {
       state.messageExpanded.delete(msgId);
@@ -222,6 +225,11 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     // When collapsing, scroll to keep the message in view
     if (wasExpanded && article) {
       article.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // When expanding, if user was near bottom, stay at bottom as content grows
+    if (!wasExpanded && wasNearBottom) {
+      scrollMessagesToBottom({ force: true, behavior: "auto" });
     }
   });
 

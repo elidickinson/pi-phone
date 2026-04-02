@@ -12,7 +12,7 @@ import {
 } from "./formatters.js";
 import { renderMarkdownLite } from "./markdown.js";
 import { renderRichToolContent } from "./tool-rendering.js";
-import { scrollMessagesToBottom, showToast, updateJumpToLatestButton } from "./ui.js";
+import { isNearBottom, scrollMessagesToBottom, showToast, updateJumpToLatestButton } from "./ui.js";
 
 const INLINE_USER_CUSTOM_TYPES = new Set(["phone-inline-user-message"]);
 
@@ -415,6 +415,9 @@ export function renderMessages({ forceScroll = false, streaming = hasLiveItems()
 }
 
 function flushRenderMessages({ forceScroll, streaming }) {
+  // Check if user was near bottom before content changes
+  const wasNearBottom = isNearBottom();
+
   const items = currentItems();
   if (!items.length) {
     el.messages.innerHTML = `
@@ -460,7 +463,10 @@ function flushRenderMessages({ forceScroll, streaming }) {
 
   renderedItemIds = nextIds;
   updateJumpToLatestButton();
-  scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
+
+  // Scroll if: forced, or user was already near bottom (sticky behavior)
+  const shouldScroll = forceScroll || wasNearBottom || state.followLatest;
+  scrollMessagesToBottom({ force: shouldScroll, streaming, behavior: "smooth" });
 }
 
 function updateMessageCaps() {
