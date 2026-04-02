@@ -113,7 +113,13 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     scrollMessagesToBottom({ force: true, behavior: "smooth" });
   });
   el.actionsButton.addEventListener("click", () => openSheet("actions"));
-  el.insertCommandButton.addEventListener("click", () => openSheet("commands"));
+  el.insertCommandButton.addEventListener("click", () => {
+    if (state.sheetMode === "commands" && !el.sheetModal.classList.contains("hidden")) {
+      closeSheet();
+    } else {
+      openSheet("commands");
+    }
+  });
   el.cdCommandButton?.addEventListener("click", () => {
     insertCdCommand();
     renderCommandSuggestions();
