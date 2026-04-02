@@ -326,7 +326,7 @@ pre {
 }
 
 .message {
-  padding: 1rem;
+  padding: 0.75rem;
 }
 
 .message.user {
@@ -354,7 +354,7 @@ pre {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
 }
 
 .role-badge {
@@ -384,7 +384,7 @@ pre {
 }
 
 .message-body p + p {
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .message-body strong {

@@ -302,14 +302,15 @@ function renderMessageInner(item) {
     : `<button class="msg-expand-btn" data-msg-id="${escapeAttribute(item.id)}"></button>`;
   const gradientElement = item.live ? "" : `<div class="msg-gradient"></div>`;
 
+  const metaPills = renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 });
+
   return `
       <div class="message-header">
         <div class="role-badge">${escapeHtml(roleLabel)}${item.live ? " · live" : ""}</div>
-        <div class="meta">${escapeHtml(item.meta || "")}</div>
+        <div class="meta">${escapeHtml(item.meta || "")}${metaPills}</div>
       </div>
       <div class="message-body">
         ${bodyMain}
-        ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
         ${extraDetails}
         ${gradientElement}
         ${expandButton}
