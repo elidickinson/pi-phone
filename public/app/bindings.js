@@ -37,9 +37,15 @@ export function initializeBindings({ handleEnvelope, handleAuthFailure }) {
     renderCommandSuggestions();
   });
 
+  // Mobile detection: coarse pointer and no hover capability (touch devices)
+  const isMobile = window.matchMedia("(pointer: coarse) and (hover: none)").matches;
+
   el.promptInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
-    const shouldSend = state.enterSends ? !event.shiftKey : event.shiftKey;
+    // Mobile: opposite behavior - Enter=newline, Shift+Enter=send
+    // Desktop: follows enterSends checkbox - Enter=send, Shift+Enter=newline (or vice versa)
+    const baseSend = isMobile ? !state.enterSends : state.enterSends;
+    const shouldSend = baseSend ? !event.shiftKey : event.shiftKey;
     if (shouldSend) {
       event.preventDefault();
       submitPrompt();
