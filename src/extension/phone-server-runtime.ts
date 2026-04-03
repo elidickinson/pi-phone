@@ -195,6 +195,16 @@ export class PhoneServerRuntime {
     };
   }
 
+  /** Get the effective URL for phone access, preferring tunnel URLs. */
+  private effectiveUrl(): string | null {
+    if (!this.server) return null;
+    const tunnel = getCloudflareTunnelInfo();
+    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
+    if (tunnel.active && cfUrl) return cfUrl;
+    if (tunnel.active && tunnel.url) return tunnel.url;
+    return `http://${this.config.host}:${this.config.port}`;
+  }
+
   private buildSnapshot() {
     const state = this.buildState();
     const entries = this.latestCtx?.sessionManager?.getBranch?.() || [];
@@ -1213,14 +1223,7 @@ export class PhoneServerRuntime {
     }
 
     this.updateStatusUi(ctx);
-    const tunnelInfo = getCloudflareTunnelInfo();
-    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
-    const openUrl =
-      tunnelInfo.active && cfUrl
-        ? cfUrl
-        : tunnelInfo.active && tunnelInfo.url
-          ? tunnelInfo.url
-          : `http://${this.config.host}:${this.config.port}`;
+    const openUrl = this.effectiveUrl() || "";
     ctx.ui.notify(this.statusText(), "info");
     if (this.config.token) {
       // Show token directly if: newly generated, or server was just restarted (user saw it before)
@@ -1279,17 +1282,7 @@ export class PhoneServerRuntime {
       return;
     }
 
-    const tunnel = getCloudflareTunnelInfo();
-    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
-    const url =
-      tunnel.active && cfUrl
-        ? cfUrl
-        : tunnel.active && tunnel.url
-          ? tunnel.url
-          : this.server
-            ? `http://${this.config.host}:${this.config.port}`
-            : null;
-
+    const url = this.effectiveUrl();
     if (!url) {
       ctx.ui.notify("Phone server is not running — start it with /phone start first.", "warning");
       return;
@@ -1326,16 +1319,7 @@ export class PhoneServerRuntime {
     const { pushoverToken, pushoverUser, pushoverOnTunnel } = this.config;
     if (!pushoverToken || !pushoverUser || !pushoverOnTunnel) return;
 
-    const tunnel = getCloudflareTunnelInfo();
-    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
-    const url =
-      tunnel.active && cfUrl
-        ? cfUrl
-        : tunnel.active && tunnel.url
-          ? tunnel.url
-          : this.server
-            ? `http://${this.config.host}:${this.config.port}`
-            : null;
+    const url = this.effectiveUrl();
     if (!url) return;
 
     await this.sendPushover(pushoverToken, pushoverUser, "Pi Phone", url, url);
@@ -1343,15 +1327,7 @@ export class PhoneServerRuntime {
 
   private notifyAccessInfo(ctx: AnyCtx) {
     const tunnel = getCloudflareTunnelInfo();
-    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
-    const url =
-      tunnel.active && cfUrl
-        ? cfUrl
-        : tunnel.active && tunnel.url
-          ? tunnel.url
-          : this.server
-            ? `http://${this.config.host}:${this.config.port}`
-            : null;
+    const url = this.effectiveUrl();
     const token = this.tokenWasGenerated ? this.config.token : this.config.token ? "(set)" : null;
     const cfToken = tunnel.active && this.config.cfToken ? "CF tunnel: (set)" : null;
     const parts = [url, token ? `token: ${token}` : null, cfToken].filter(Boolean);
@@ -1373,14 +1349,10 @@ export class PhoneServerRuntime {
     this.broadcastSnapshot();
   }
 
-  async handleSessionSwitch(ctx: ExtensionContext) {
-    this.captureCtx(ctx);
-    if (!this.server) {
-      this.config.cwd = this.activeCwd();
-    }
-    this.updateStatusUi(ctx);
-    this.broadcastSnapshot();
-  }
+  handleSessionSwitch = this.handleSessionStart;
+  handleSessionFork = this.handleSessionStart;
+  handleSessionTree = this.handleSessionStart;
+  handleModelSelect = this.handleSessionStart;
 
   async handleSessionShutdown(ctx: ExtensionContext) {
     this.captureCtx(ctx);
