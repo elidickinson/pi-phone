@@ -527,8 +527,9 @@ pre {
 
 .message-body summary::after {
   content: '▸';
-  font-size: var(--text-sm);
+  font-size: 1.5rem;
   color: var(--muted);
+  line-height: 1;
 }
 
 .message-body details[open] > summary {
@@ -539,6 +540,8 @@ pre {
 
 .message-body details[open] > summary::after {
   content: '▾';
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .message-body details[open] .detail-content,
@@ -610,12 +613,15 @@ pre {
   content: '▸';
   flex: 0 0 auto;
   align-self: center;
-  font-size: var(--text-sm);
+  font-size: 1.5rem;
+  line-height: 1;
   color: var(--muted);
 }
 
 .tool-panel[open] > .tool-panel-summary::after {
   content: '▾';
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .tool-panel-summary-copy {
