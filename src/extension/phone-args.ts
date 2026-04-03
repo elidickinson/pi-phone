@@ -8,9 +8,10 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
   let local = false;
   let cfTokenSpecified = false;
   let passwordManagerIgnoreSpecified = false;
+  let pushoverOnTunnelSpecified = false;
 
   if (!args?.trim()) {
-    return { config: next, tokenSpecified, idleSpecified, local, cfTokenSpecified };
+    return { config: next, tokenSpecified, idleSpecified, local, cfTokenSpecified, pushoverOnTunnelSpecified };
   }
 
   const tokens = args.trim().split(/\s+/);
@@ -143,6 +144,13 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
       continue;
     }
 
+    if (token === "--pushover-on-tunnel") {
+      pushoverOnTunnelSpecified = true;
+      next.pushoverOnTunnel = true;
+      index += 1;
+      continue;
+    }
+
     if (/^\d+$/.test(token)) {
       next.port = Number(token);
       index += 1;
@@ -159,5 +167,5 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
     index += 1;
   }
 
-  return { config: next, tokenSpecified, idleSpecified, local, cfTokenSpecified };
+  return { config: next, tokenSpecified, idleSpecified, local, cfTokenSpecified, pushoverOnTunnelSpecified };
 }

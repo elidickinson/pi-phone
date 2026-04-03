@@ -10,6 +10,7 @@ export type PhoneConfig = {
   cfHostname: string;
   pushoverToken: string;
   pushoverUser: string;
+  pushoverOnTunnel: boolean;
   passwordManagerIgnore: boolean;
 };
 
@@ -19,6 +20,7 @@ export type ParsedPhoneArgs = {
   idleSpecified: boolean;
   local: boolean;
   cfTokenSpecified: boolean;
+  pushoverOnTunnelSpecified: boolean;
 };
 
 export type PersistedPhoneRuntime = {

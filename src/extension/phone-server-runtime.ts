@@ -110,6 +110,7 @@ export class PhoneServerRuntime {
     cfHostname: process.env.PI_PHONE_CF_HOSTNAME || "",
     pushoverToken: process.env.PI_PHONE_PUSHOVER_TOKEN || "",
     pushoverUser: process.env.PI_PHONE_PUSHOVER_USER || "",
+    pushoverOnTunnel: Boolean(process.env.PI_PHONE_PUSHOVER_ON_TUNNEL),
     passwordManagerIgnore: false,
   };
   private server: Server | null = null;
@@ -1205,6 +1206,7 @@ export class PhoneServerRuntime {
         } else {
           ctx.ui.notify("Cloudflare Tunnel connected (hostname configured in dashboard)", "info");
         }
+        await this.sendPushoverIfConfigured();
       } else if (tunnel.error) {
         ctx.ui.notify(`Could not start cloudflared: ${tunnel.error}`, "warning");
       }
@@ -1293,20 +1295,50 @@ export class PhoneServerRuntime {
       return;
     }
 
-    const message = this.config.token ? `${url} — Token: ${this.config.token}` : url;
-    const result = await sendPushoverNotification(
-      pushoverToken,
-      pushoverUser,
-      "Pi Phone",
-      message,
-      url,
-    );
+    const sessionName = this.latestCtx?.sessionManager?.getSessionName?.() || null;
+    const cwd = this.config.cwd || null;
+    const extras: string[] = [];
+    if (sessionName) extras.push(`Session: ${sessionName}`);
+    if (cwd) extras.push(`Dir: ${cwd}`);
+    const extrasStr = extras.length ? ` — ${extras.join(" · ")}` : "";
+    const message = this.config.token ? `${url} — Token: ${this.config.token}${extrasStr}` : `${url}${extrasStr}`;
+    const result = await sendPushoverNotification(pushoverToken, pushoverUser, "Pi Phone", message, url);
 
     if (result.success) {
       ctx.ui.notify("Pushover notification sent.", "info");
     } else {
       ctx.ui.notify(`Pushover error: ${result.error}`, "error");
     }
+  }
+
+  private async sendPushover(token: string, user: string, title: string, message: string, url?: string) {
+    const sessionName = this.latestCtx?.sessionManager?.getSessionName?.() || null;
+    const cwd = this.config.cwd || null;
+    const extras: string[] = [];
+    if (sessionName) extras.push(`Session: ${sessionName}`);
+    if (cwd) extras.push(`Dir: ${cwd}`);
+    const extrasStr = extras.length ? ` — ${extras.join(" · ")}` : "";
+    const fullMessage = `${message}${extrasStr}`;
+    return sendPushoverNotification(token, user, title, fullMessage, url);
+  }
+
+  private async sendPushoverIfConfigured() {
+    const { pushoverToken, pushoverUser, pushoverOnTunnel } = this.config;
+    if (!pushoverToken || !pushoverUser || !pushoverOnTunnel) return;
+
+    const tunnel = getCloudflareTunnelInfo();
+    const cfUrl = this.config.cfHostname ? `https://${this.config.cfHostname}` : "";
+    const url =
+      tunnel.active && cfUrl
+        ? cfUrl
+        : tunnel.active && tunnel.url
+          ? tunnel.url
+          : this.server
+            ? `http://${this.config.host}:${this.config.port}`
+            : null;
+    if (!url) return;
+
+    await this.sendPushover(pushoverToken, pushoverUser, "Pi Phone", url, url);
   }
 
   private notifyAccessInfo(ctx: AnyCtx) {

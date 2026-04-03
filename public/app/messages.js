@@ -346,8 +346,8 @@ function enrichToolItems(items) {
 
 function currentItems() {
   const items = [...state.messages];
-  for (const tool of state.liveTools.values()) items.push(tool);
   if (state.liveAssistant) items.push(state.liveAssistant);
+  for (const tool of state.liveTools.values()) items.push(tool);
   return enrichToolItems(items);
 }
 

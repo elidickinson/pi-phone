@@ -347,7 +347,7 @@ export function openTokenModal() {
   }
   el.loginModal.classList.remove("hidden");
   applyPasswordManagerIgnore();
-  setTimeout(() => el.tokenInput.focus(), 10);
+  requestAnimationFrame(() => el.tokenInput.focus());
 }
 
 export function applyPasswordManagerIgnore() {

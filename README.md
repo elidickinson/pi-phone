@@ -131,8 +131,16 @@ Send the Pi Phone URL and token to your devices via [Pushover](https://pushover.
    ```bash
    export PI_PHONE_PUSHOVER_TOKEN="your-app-token"
    export PI_PHONE_PUSHOVER_USER="your-user-key"
+   export PI_PHONE_PUSHOVER_ON_TUNNEL=1
    ```
-4. **Start Pi Phone**, then run:
+4. **Start Pi Phone**:
+   ```text
+   /phone pushover
+   ```
+   Or start with auto-pushover on tunnel:
+   ```text
+   /phone start --pushover-on-tunnel --cf-token eyJ... --cf-hostname phone.example.com
+   ```
    ```text
    /phone pushover
    ```
@@ -154,6 +162,7 @@ Examples:
 /phone start --idle-mins 20
 /phone start --idle-secs 90
 /phone start --cf-token eyJ... --cf-hostname phone.example.com
+/phone start --pushover-on-tunnel --cf-token eyJ... --cf-hostname phone.example.com
 ```
 
 Behavior:
