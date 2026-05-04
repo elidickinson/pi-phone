@@ -16,6 +16,7 @@ import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname } from "node:path";
+import qrcodeTerminalModule from "qrcode-terminal";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { parsePhoneStartArgs } from "./phone-args";
 import { listPhonePathSuggestions, resolvePhoneCdTargetPath } from "./phone-paths";
@@ -36,6 +37,10 @@ import { buildThemePayload } from "./phone-theme";
 import type { PhoneConfig } from "./types";
 
 type AnyCtx = ExtensionContext | ExtensionCommandContext;
+
+const qrcodeTerminal = qrcodeTerminalModule as {
+  generate(value: string, options: { small: boolean }, callback: (qr: string) => void): void;
+};
 
 const DEFAULT_IDLE_TIMEOUT_MS = 2 * 60 * 60_000;
 
@@ -59,6 +64,29 @@ function parseSlashCommandText(text: unknown) {
 
 function entryTimestamp(entry: SessionEntry): number {
   return typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : 0;
+}
+
+function urlWithToken(url: string, token: string) {
+  if (!token) return url;
+
+  const hashParams = new URLSearchParams();
+  hashParams.set("token", token);
+
+  try {
+    const parsed = new URL(url);
+    parsed.hash = hashParams.toString();
+    return parsed.toString();
+  } catch {
+    return `${url}#${hashParams.toString()}`;
+  }
+}
+
+function qrCodeFor(value: string) {
+  let qr = "";
+  qrcodeTerminal.generate(value, { small: true }, (generated) => {
+    qr = generated;
+  });
+  return qr.trimEnd();
 }
 
 /** Convert session entries to the message format the phone UI expects. */
@@ -1122,6 +1150,7 @@ export class PhoneServerRuntime {
 
   updateStatusUi(ctx: AnyCtx) {
     const theme = ctx.ui.theme;
+    ctx.ui.setWidget("pi-phone-qr", undefined);
     if (this.server) {
       const dot = theme.fg("success", "●");
       const label = theme.fg("text", " phone on");
@@ -1134,6 +1163,17 @@ export class PhoneServerRuntime {
   syncStatusUi() {
     if (!this.latestCtx) return;
     this.updateStatusUi(this.latestCtx);
+  }
+
+  private accessUrl() {
+    const url = this.effectiveUrl() || `http://${this.config.host}:${this.config.port}`;
+    return this.config.token ? urlWithToken(url, this.config.token) : url;
+  }
+
+  private qrText() {
+    const url = this.accessUrl();
+    const intro = this.config.token ? "Scan to open Pi Phone with token:" : "Scan to open Pi Phone:";
+    return `${intro}\n\n${qrCodeFor(url)}\n\n${url}`;
   }
 
   statusText() {
@@ -1223,15 +1263,16 @@ export class PhoneServerRuntime {
     }
 
     this.updateStatusUi(ctx);
-    const openUrl = this.effectiveUrl() || "";
+    const openUrl = this.accessUrl();
+    const baseUrl = this.effectiveUrl() || "";
     ctx.ui.notify(this.statusText(), "info");
     if (this.config.token) {
       // Show token directly if: newly generated, or server was just restarted (user saw it before)
       const showTokenDirectly = this.tokenWasGenerated || this.serverWasRunning;
       if (showTokenDirectly) {
-        ctx.ui.notify(`Open ${openUrl} — token: ${this.config.token}`, "info");
+        ctx.ui.notify(`Open ${openUrl}`, "info");
       } else {
-        ctx.ui.notify(`Open ${openUrl} (use the token from /phone token)`, "info");
+        ctx.ui.notify(`Open ${baseUrl} (run /phone qr for a scannable QR)`, "info");
       }
     } else {
       ctx.ui.notify(`Open ${openUrl}`, "info");
@@ -1271,10 +1312,20 @@ export class PhoneServerRuntime {
     this.notifyAccessInfo(ctx);
   }
 
+  async handlePhoneQr(ctx: ExtensionCommandContext) {
+    this.captureCtx(ctx);
+    if (!this.effectiveUrl()) {
+      ctx.ui.notify("Phone server is not running — start it with /phone start first.", "warning");
+      return;
+    }
+
+    await ctx.ui.editor("Pi Phone QR", this.qrText());
+  }
+
   async handlePhonePushover(ctx: ExtensionCommandContext) {
     this.captureCtx(ctx);
 
-    const { pushoverToken, pushoverUser, token } = this.config;
+    const { pushoverToken, pushoverUser } = this.config;
     if (!pushoverToken || !pushoverUser) {
       ctx.ui.notify("Set PI_PHONE_PUSHOVER_TOKEN and PI_PHONE_PUSHOVER_USER env vars to use Pushover.", "warning");
       return;
@@ -1286,8 +1337,9 @@ export class PhoneServerRuntime {
       return;
     }
 
-    const message = this.buildPushoverMessage(url, Boolean(token));
-    const result = await sendPushoverNotification(pushoverToken, pushoverUser, "Pi Phone", message, url);
+    const openUrl = this.accessUrl();
+    const message = this.buildPushoverMessage(openUrl);
+    const result = await sendPushoverNotification(pushoverToken, pushoverUser, "Pi Phone", message, openUrl);
 
     if (result.success) {
       ctx.ui.notify("Pushover notification sent.", "info");
@@ -1296,25 +1348,24 @@ export class PhoneServerRuntime {
     }
   }
 
-  private buildPushoverMessage(base: string, includeToken = false) {
+  private buildPushoverMessage(base: string) {
     const extras: string[] = [];
     const sessionName = this.latestCtx?.sessionManager?.getSessionName?.();
     const cwd = this.config.cwd;
     if (sessionName) extras.push(`Session: ${sessionName}`);
     if (cwd) extras.push(`Dir: ${cwd}`);
     const extrasStr = extras.length ? ` — ${extras.join(" · ")}` : "";
-    return includeToken ? `${base} — Token: ${this.config.token}${extrasStr}` : `${base}${extrasStr}`;
+    return `${base}${extrasStr}`;
   }
 
   private async sendPushoverIfConfigured() {
-    const { pushoverToken, pushoverUser, pushoverOnTunnel, token } = this.config;
+    const { pushoverToken, pushoverUser, pushoverOnTunnel } = this.config;
     if (!pushoverToken || !pushoverUser || !pushoverOnTunnel) return;
 
-    const url = this.effectiveUrl();
-    if (!url) return;
-
-    const message = this.buildPushoverMessage(url, Boolean(token));
-    await sendPushoverNotification(pushoverToken, pushoverUser, "Pi Phone", message, url);
+    if (!this.effectiveUrl()) return;
+    const openUrl = this.accessUrl();
+    const message = this.buildPushoverMessage(openUrl);
+    await sendPushoverNotification(pushoverToken, pushoverUser, "Pi Phone", message, openUrl);
   }
 
   private notifyAccessInfo(ctx: AnyCtx) {
