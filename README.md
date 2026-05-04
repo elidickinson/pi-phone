@@ -88,7 +88,11 @@ Pi will show a Cloudflare tunnel URL like:
 https://random-words.trycloudflare.com
 ```
 
-Open that URL on your phone.
+Open that URL on your phone, or show a scannable QR code with:
+
+```text
+/phone qr
+```
 
 ### 4. Enter the token if prompted
 
@@ -99,6 +103,8 @@ You can view it again at any time with:
 ```text
 /phone token
 ```
+
+The `/phone qr` command embeds the token in the URL fragment, so scanning it connects directly without typing the token. The phone UI stores the token locally and removes it from the address bar after loading.
 
 ## Static hostname (optional)
 
@@ -205,6 +211,14 @@ Shows whether the phone server is running, whether the parent session is current
 
 Shows the current token, or tells you that token auth is disabled for the current phone server.
 
+### `/phone qr`
+
+```text
+/phone qr
+```
+
+Shows a scannable QR code for the current Pi Phone URL. When token auth is enabled, the QR code embeds the token so the phone can connect directly.
+
 ### `/phone pushover`
 
 ```text
@@ -217,7 +231,7 @@ Sends the Pi Phone URL and token to your devices via Pushover. Requires `PI_PHON
 
 1. Start Pi in your project
 2. Run `/phone start`
-3. Open the Cloudflare tunnel URL on your phone
+3. Open the Cloudflare tunnel URL on your phone, or run `/phone qr` and scan it
 4. Enter the token once if prompted
 5. Work from the phone UI
 6. When done, run `/phone stop`

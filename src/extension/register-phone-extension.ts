@@ -5,7 +5,7 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
   const runtime = new PhoneServerRuntime(pi);
 
   pi.registerCommand("phone", {
-    description: "Pi Phone subcommands: start, stop, status, token, pushover",
+    description: "Pi Phone subcommands: start, stop, status, token, qr, pushover",
     handler: async (args, ctx) => {
       const trimmed = (args || "").trim();
       const spaceIdx = trimmed.indexOf(" ");
@@ -25,12 +25,15 @@ export default function registerPhoneExtension(pi: ExtensionAPI) {
         case "token":
           runtime.handlePhoneToken(ctx);
           break;
+        case "qr":
+          await runtime.handlePhoneQr(ctx);
+          break;
         case "pushover":
           await runtime.handlePhonePushover(ctx);
           break;
         default:
           ctx.ui.notify(
-            "Pi Phone commands:\n/phone start [port] [token] [--local] [--cwd path] [--host 127.0.0.1] [--idle-mins 20] [--pushover-on-tunnel] [--no-password-manager]\n/phone stop\n/phone status\n/phone token\n/phone pushover",
+            "Pi Phone commands:\n/phone start [port] [token] [--local] [--cwd path] [--host 127.0.0.1] [--idle-mins 20] [--pushover-on-tunnel] [--no-password-manager]\n/phone stop\n/phone status\n/phone token\n/phone qr\n/phone pushover",
             "info",
           );
           await runtime.handlePhoneStatus(ctx);

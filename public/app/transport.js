@@ -1,5 +1,23 @@
 import { state } from "./state.js";
-import { openTokenModal, renderHeader, renderQuota, showBanner, showToast } from "./ui.js";
+import { openTokenModal, renderHeader, renderQuota, showBanner, showToast, storeToken } from "./ui.js";
+
+function consumeTokenFromUrl() {
+  const url = new URL(window.location.href);
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const searchToken = url.searchParams.get("token");
+  const hashToken = hashParams.get("token");
+  const token = (searchToken || hashToken || "").trim();
+  if (!token) return;
+
+  state.token = token;
+  storeToken(token);
+  if (searchToken !== null) url.searchParams.delete("token");
+  if (hashToken !== null) {
+    hashParams.delete("token");
+    url.hash = hashParams.toString();
+  }
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
 
 export function clearReconnectTimer() {
   if (!state.reconnectTimer) return;
@@ -61,6 +79,7 @@ export async function refreshQuota({ force = false } = {}) {
     const url = new URL("/api/quota", window.location.origin);
     url.searchParams.set("provider", currentModel.provider);
     url.searchParams.set("modelId", currentModel.modelId);
+    if (state.token) url.searchParams.set("token", state.token);
     if (force) url.searchParams.set("force", "1");
 
     const response = await fetch(url, { cache: "no-store" });
@@ -160,6 +179,8 @@ export async function loadHealth() {
 }
 
 export async function boot({ handleEnvelope, handleAuthFailure }) {
+  consumeTokenFromUrl();
+
   try {
     await loadHealth();
   } catch (error) {
